@@ -4,6 +4,7 @@ Follow all your fantasy leagues from your wrist. Every league you pick gets a
 matchup card: team names on each side, the live score in the middle, and a
 red/green bar showing win probability.
 
+![One league](screenshot_1league.png)
 ![Two leagues](screenshot_emery.png)
 ![Three leagues](screenshot_3leagues.png)
 ![Five leagues, scrolled](screenshot_5leagues_scrolled.png)
