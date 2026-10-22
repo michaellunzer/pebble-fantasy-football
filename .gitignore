@@ -1,0 +1,9 @@
+# Pebble build output
+build/
+.lock-waf*
+
+# The pebble-watchface skill is a copy of coredevices/pebble-watchface-agent-skill;
+# install it yourself rather than redistributing it here.
+.claude/
+
+.DS_Store

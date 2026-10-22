@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fantasy Football Settings</title>
+<style>
+  :root {
+    --bg: #15171e;
+    --card: #1f2330;
+    --line: #2d3344;
+    --text: #f2f4f8;
+    --muted: #949bb0;
+    --accent: #00d98b;
+    --danger: #ff4d6d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px 40px;
+    background: var(--bg); color: var(--text);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .row { display: flex; gap: 8px; }
+  input[type=text] {
+    flex: 1; padding: 12px; font-size: 16px;
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    padding: 12px 18px; font-size: 16px; font-weight: 600;
+    border: 0; border-radius: 10px; cursor: pointer;
+    background: var(--accent); color: #06231a;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  #msg { margin: 14px 0 0; font-size: 14px; min-height: 20px; }
+  #msg.err { color: var(--danger); }
+  #msg.ok { color: var(--accent); }
+  ul { list-style: none; padding: 0; margin: 20px 0 0; }
+  li {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; margin-bottom: 10px;
+  }
+  li label {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px; margin: 0; color: var(--text); font-size: 16px; cursor: pointer;
+  }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+  .meta { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  #save { width: 100%; margin-top: 20px; padding: 15px; font-size: 17px; }
+  .hint { color: var(--muted); font-size: 13px; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<h1>Fantasy Football</h1>
+<p class="sub">Find your Sleeper account, then pick the leagues you want on your watch.</p>
+
+<label for="username">Sleeper username</label>
+<div class="row">
+  <input type="text" id="username" placeholder="e.g. LUNZ" autocapitalize="off"
+         autocorrect="off" spellcheck="false">
+  <button id="search">Search</button>
+</div>
+<p id="msg"></p>
+
+<ul id="leagues"></ul>
+<button id="save" style="display:none">Save to watch</button>
+
+<p class="hint">Leagues are read from Sleeper's public API. Nothing is sent anywhere else.</p>
+
+<script>
+(function () {
+  var API = 'https://api.sleeper.app';
+  var params = new URLSearchParams(location.search);
+  var returnTo = params.get('return_to') || 'pebblejs://close#';
+
+  var elUser = document.getElementById('username');
+  var elSearch = document.getElementById('search');
+  var elMsg = document.getElementById('msg');
+  var elList = document.getElementById('leagues');
+  var elSave = document.getElementById('save');
+
+  var current = null;
+  try { current = JSON.parse(params.get('current') || 'null'); } catch (e) {}
+
+  var found = { user_id: null, username: null, leagues: [] };
+  var preselected = {};
+
+  if (current && current.username) {
+    elUser.value = current.username;
+    (current.leagues || []).forEach(function (l) { preselected[l.league_id] = true; });
+  }
+
+  function say(text, cls) {
+    elMsg.textContent = text;
+    elMsg.className = cls || '';
+  }
+
+  function json(url) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  function search() {
+    var name = elUser.value.trim();
+    if (!name) { say('Enter your Sleeper username.', 'err'); return; }
+
+    elSearch.disabled = true;
+    elList.innerHTML = '';
+    elSave.style.display = 'none';
+    say('Looking up ' + name + '…');
+
+    var season;
+    json(API + '/v1/state/nfl')
+      .then(function (state) {
+        season = state.season;
+        return json(API + '/v1/user/' + encodeURIComponent(name));
+      })
+      .then(function (user) {
+        if (!user || !user.user_id) throw new Error('not found');
+        found.user_id = user.user_id;
+        found.username = user.display_name || name;
+        return json(API + '/v1/user/' + user.user_id + '/leagues/nfl/' + season);
+      })
+      .then(function (leagues) {
+        if (!leagues || leagues.length === 0) {
+          say('No ' + season + ' NFL leagues on that account.', 'err');
+          elSearch.disabled = false;
+          return;
+        }
+        say('Found ' + leagues.length + ' league' +
+            (leagues.length === 1 ? '' : 's') + ' for ' + found.username + '.', 'ok');
+        return loadTeams(leagues);
+      })
+      .catch(function () {
+        say('No Sleeper user called "' + name + '".', 'err');
+        elSearch.disabled = false;
+      });
+  }
+
+  // Resolve the user's own team name inside each league, so leagues with
+  // similar names are still tellable apart.
+  function loadTeams(leagues) {
+    return Promise.all(leagues.map(function (lg) {
+      return Promise.all([
+        json(API + '/v1/league/' + lg.league_id + '/rosters'),
+        json(API + '/v1/league/' + lg.league_id + '/users')
+      ]).then(function (res) {
+        var rosters = res[0], users = res[1];
+        var mine = rosters.filter(function (r) { return r.owner_id === found.user_id; })[0];
+        var me = users.filter(function (u) { return u.user_id === found.user_id; })[0];
+        var md = (me && me.metadata) || {};
+        return {
+          league_id: lg.league_id,
+          name: lg.name,
+          roster_id: mine ? mine.roster_id : null,
+          team: md.team_name || (me && me.display_name) || found.username,
+          teams: lg.total_rosters
+        };
+      }).catch(function () {
+        return { league_id: lg.league_id, name: lg.name, roster_id: null,
+                 team: found.username, teams: lg.total_rosters };
+      });
+    })).then(render);
+  }
+
+  function render(leagues) {
+    found.leagues = leagues;
+    elList.innerHTML = '';
+    leagues.forEach(function (lg, i) {
+      var li = document.createElement('li');
+      var label = document.createElement('label');
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.index = i;
+      cb.checked = preselected[lg.league_id] || Object.keys(preselected).length === 0;
+
+      var text = document.createElement('span');
+      text.innerHTML = '<strong></strong><span class="meta"></span>';
+      text.querySelector('strong').textContent = lg.name;
+      text.querySelector('.meta').textContent =
+        lg.team + ' · ' + lg.teams + ' teams';
+
+      label.appendChild(cb);
+      label.appendChild(text);
+      li.appendChild(label);
+      elList.appendChild(li);
+    });
+    elSave.style.display = 'block';
+    elSearch.disabled = false;
+  }
+
+  function save() {
+    var picked = [];
+    elList.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+      if (cb.checked) {
+        var lg = found.leagues[+cb.dataset.index];
+        picked.push({ league_id: lg.league_id, name: lg.name, roster_id: lg.roster_id });
+      }
+    });
+    if (picked.length === 0) { say('Tick at least one league.', 'err'); return; }
+
+    var payload = {
+      user_id: found.user_id,
+      username: found.username,
+      leagues: picked
+    };
+    location.href = returnTo + encodeURIComponent(JSON.stringify(payload));
+  }
+
+  elSearch.addEventListener('click', search);
+  elUser.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') search();
+  });
+  elSave.addEventListener('click', save);
+})();
+</script>
+</body>
+</html>

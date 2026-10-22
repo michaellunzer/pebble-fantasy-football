@@ -1,0 +1,29 @@
+{
+  "name": "fantasy-football",
+  "author": "Michael Lunzer",
+  "version": "1.0.0",
+  "keywords": ["pebble-app"],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Fantasy Football",
+    "uuid": "49240ea5-b8e4-4fce-8988-1f3025173fb7",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": ["emery"],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "LEAGUE_IDX",
+      "LEAGUE_COUNT",
+      "LEAGUE_DATA",
+      "WEEK",
+      "STATUS",
+      "REQUEST_REFRESH"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
