@@ -6,7 +6,11 @@
  */
 
 var API = 'https://api.sleeper.app';
-var CONFIG_URL = 'https://michaellunzer.github.io/pebble-fantasy-football/config.html';
+// Served from GitHub Pages. This account's Pages custom domain is
+// archive.michaellunzer.com, so michaellunzer.github.io only redirects here;
+// point at the canonical host directly rather than relying on the config
+// webview following a redirect.
+var CONFIG_URL = 'https://archive.michaellunzer.com/pebble-fantasy-football/config.html';
 var SEP = '\x1F';
 
 // Per-player standard deviation used to spread the projected margin. Tuned so
