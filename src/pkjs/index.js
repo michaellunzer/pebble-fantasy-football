@@ -139,12 +139,19 @@ function loadProjections(season, week, cb) {
 
 // ------------------------------------------------------------------ win model
 
-// A starter has played if it already scored, or if its game date is behind us.
-function hasPlayed(pid, pts, proj, now) {
-  if (pts > 0) return true;
+// Three states, not two. A starter on a bye, inactive, or simply missing from
+// the projections has no game date at all -- counting them as "yet to play"
+// would inflate the players-left figure with players who will never take the
+// field, and that figure is what makes a deficit readable.
+//   'done'    already scored, or their game has finished
+//   'pending' has a game still to come
+//   'none'    no game: bye, inactive, or unknown
+function playState(pid, pts, proj, now) {
+  if (pts > 0) return 'done';
   var p = proj[pid];
-  if (p && p.date && p.date < now) return true;
-  return false;
+  if (!p || !p.date) return 'none';
+  if (p.date < now) return 'done';
+  return 'pending';
 }
 
 function projectTeam(entry, proj, scoringField, now) {
@@ -157,7 +164,7 @@ function projectTeam(entry, proj, scoringField, now) {
     var pid = starters[i];
     if (!pid || pid === '0') continue;          // empty roster slot
     var pts = pointsArr[i] || 0;
-    if (hasPlayed(pid, pts, proj, now)) continue;
+    if (playState(pid, pts, proj, now) !== 'pending') continue;
     var p = proj[pid];
     remaining += (p && p[scoringField]) ? p[scoringField] : 0;
     yetToPlay += 1;
@@ -236,6 +243,9 @@ function buildRow(cfg, league, data, proj, now) {
   var mine = projectTeam(me, proj, field, now);
   var theirs = projectTeam(opp, proj, field, now);
   var win = winProbability(mine, theirs);
+  // mine/theirs also carry projected totals and how many starters are still to
+  // play; both go to the watch, since a deficit only means something next to
+  // the number of players left to erase it.
 
   function nameFor(rid) {
     var r = rosterById[rid];
@@ -249,7 +259,11 @@ function buildRow(cfg, league, data, proj, now) {
     fmt(opp.points),
     String(win),
     record(rosterById[myRosterId]),
-    record(rosterById[opp.roster_id])
+    record(rosterById[opp.roster_id]),
+    String(mine.left),
+    String(theirs.left),
+    fmt(mine.projected),
+    fmt(theirs.projected)
   ].join(SEP);
 }
 

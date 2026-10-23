@@ -8,6 +8,7 @@
 #define PERSIST_ROWS    1
 #define PERSIST_COUNT   2
 #define PERSIST_WEEK    3
+#define PERSIST_SCHEMA  4
 
 typedef struct {
   char my_name[NAME_LEN];
@@ -16,8 +17,16 @@ typedef struct {
   char opp_pts[PTS_LEN];
   char my_rec[REC_LEN];
   char opp_rec[REC_LEN];
+  char my_proj[PTS_LEN];     // projected final, incl. starters yet to play
+  char opp_proj[PTS_LEN];
   uint8_t my_win;            // 0-100
+  uint8_t my_left;           // starters who have not played yet
+  uint8_t opp_left;
 } LeagueRow;
+
+// Bump whenever LeagueRow changes shape: persisted rows from an older build
+// would otherwise be read back misaligned and drawn as garbage.
+#define ROW_SCHEMA 2
 
 static Window *s_window;
 static ScrollLayer *s_scroll;
@@ -120,20 +129,23 @@ static void draw_row(GContext *ctx, const LeagueRow *r, GRect row) {
   // Scores, with VS between them
   GRect score_box = GRect(inner_x, row.origin.y + st.score_y, inner_w,
                           st.score_h);
-  if (is_pregame(r)) {
-    draw_text(ctx, "–   VS   –",
-              fonts_get_system_font(row.size.h >= 100 ? FONT_KEY_GOTHIC_24_BOLD
-                                                      : FONT_KEY_GOTHIC_18_BOLD),
-              score_box, GTextAlignmentCenter);
+  bool pregame = is_pregame(r);
+  if (pregame) {
+    // Nothing scored yet, so the projection is the only real information.
+    // Dimmed and labelled PROJ so it cannot be mistaken for a live score.
+    graphics_context_set_text_color(ctx, GColorLightGray);
+    draw_text(ctx, r->my_proj, st.score_font, score_box, GTextAlignmentLeft);
+    draw_text(ctx, r->opp_proj, st.score_font, score_box, GTextAlignmentRight);
   } else {
     draw_text(ctx, r->my_pts, st.score_font, score_box, GTextAlignmentLeft);
     draw_text(ctx, r->opp_pts, st.score_font, score_box, GTextAlignmentRight);
-    graphics_context_set_text_color(ctx, GColorLightGray);
-    draw_text(ctx, "VS", fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-              GRect(score_box.origin.x, score_box.origin.y + st.score_h / 4,
-                    score_box.size.w, st.score_h),
-              GTextAlignmentCenter);
   }
+  graphics_context_set_text_color(ctx, GColorLightGray);
+  draw_text(ctx, pregame ? "PROJ" : "VS",
+            fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+            GRect(score_box.origin.x, score_box.origin.y + st.score_h / 4,
+                  score_box.size.w, st.score_h),
+            GTextAlignmentCenter);
 
   // Win-probability bar: leader green, trailing side red, split at my_win%
   int my_w = (inner_w * r->my_win) / 100;
@@ -151,9 +163,16 @@ static void draw_row(GContext *ctx, const LeagueRow *r, GRect row) {
   graphics_fill_rect(ctx, bar_r, 2, GCornersRight);
 
   // Footer: win% and record on each side
-  char left[20], right[20];
-  snprintf(left, sizeof(left), "%d%%  %s", r->my_win, r->my_rec);
-  snprintf(right, sizeof(right), "%s  %d%%", r->opp_rec, 100 - r->my_win);
+  // While anyone is still to play, the count of players left says far more
+  // about a deficit than the season record does. Swap back once they are done.
+  char left[22], right[22];
+  if (r->my_left > 0 || r->opp_left > 0) {
+    snprintf(left, sizeof(left), "%d%%  %d left", r->my_win, r->my_left);
+    snprintf(right, sizeof(right), "%d left  %d%%", r->opp_left, 100 - r->my_win);
+  } else {
+    snprintf(left, sizeof(left), "%d%%  %s", r->my_win, r->my_rec);
+    snprintf(right, sizeof(right), "%s  %d%%", r->opp_rec, 100 - r->my_win);
+  }
   graphics_context_set_text_color(ctx, GColorLightGray);
   draw_text(ctx, left, st.foot_font,
             GRect(inner_x, row.origin.y + st.foot_y, half, st.foot_h),
@@ -295,9 +314,16 @@ static void save_rows(void) {
   persist_write_data(PERSIST_ROWS, s_rows, sizeof(LeagueRow) * MAX_LEAGUES);
   persist_write_int(PERSIST_COUNT, s_count);
   persist_write_int(PERSIST_WEEK, s_week);
+  persist_write_int(PERSIST_SCHEMA, ROW_SCHEMA);
 }
 
 static void load_rows(void) {
+  // Rows written by a build with a different LeagueRow layout are unreadable.
+  int schema = persist_exists(PERSIST_SCHEMA) ? persist_read_int(PERSIST_SCHEMA) : 0;
+  if (schema != ROW_SCHEMA) {
+    s_count = 0;
+    return;
+  }
   if (persist_exists(PERSIST_COUNT)) {
     s_count = persist_read_int(PERSIST_COUNT);
     if (s_count < 0) s_count = 0;
@@ -334,6 +360,15 @@ static void parse_league(int idx, const char *data) {
   p = take_field(p, win,         sizeof(win));
   p = take_field(p, r->my_rec,   REC_LEN);
   p = take_field(p, r->opp_rec,  REC_LEN);
+
+  char num[8];
+  p = take_field(p, num, sizeof(num));
+  r->my_left = (uint8_t)atoi(num);
+  p = take_field(p, num, sizeof(num));
+  r->opp_left = (uint8_t)atoi(num);
+  p = take_field(p, r->my_proj,  PTS_LEN);
+  p = take_field(p, r->opp_proj, PTS_LEN);
+
   int w = atoi(win);
   if (w < 0) w = 0;
   if (w > 100) w = 100;
