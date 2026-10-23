@@ -4,10 +4,14 @@ Follow all your fantasy leagues from your wrist. Every league you pick gets a
 matchup card: team names on each side, the live score in the middle, and a
 red/green bar showing win probability.
 
-![One league](screenshot_1league.png)
-![Two leagues](screenshot_emery.png)
+![Two leagues, live scoring](screenshot_emery.png)
+![One league, before kickoff](screenshot_1league.png)
 ![Three leagues](screenshot_3leagues.png)
 ![Five leagues, scrolled](screenshot_5leagues_scrolled.png)
+
+Two leagues mid-game, then a single league before kickoff — until the first
+game starts there is nothing to show but the odds, so the scores read
+`-  VS  -` and only the win-probability bar carries information.
 
 Currently supports **Sleeper**. The platform is `emery` (Pebble Time 2,
 200x228, 64-colour).
