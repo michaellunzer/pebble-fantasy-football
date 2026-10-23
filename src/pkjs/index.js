@@ -21,6 +21,11 @@ var PLAYER_SD = 9.0;
 // Used only to screenshot the 3-league and scrolling layouts. null = off.
 var DEMO_LEAGUES = null;
 
+// Per-league starter lines, held so opening a league needs no refetch. Index
+// matches the order the rows were sent to the watch.
+var s_details = [];
+var s_titles = [];
+
 // ------------------------------------------------------------------ utilities
 
 function get(url, cb) {
@@ -95,8 +100,11 @@ function today() {
 
 // ---------------------------------------------------------------- projections
 
+// v2 added player name and position to each entry. The key carries the version
+// so a cache written by an older build is ignored rather than served without
+// the fields the detail view needs.
 function projectionKey(season, week) {
-  return 'proj:' + season + ':' + week;
+  return 'proj:v2:' + season + ':' + week;
 }
 
 function loadProjections(season, week, cb) {
@@ -121,11 +129,14 @@ function loadProjections(season, week, cb) {
     for (var i = 0; i < list.length; i++) {
       var e = list[i];
       var st = e.stats || {};
+      var pl = e.player || {};
       map[e.player_id] = {
         ppr: st.pts_ppr || 0,
         half: st.pts_half_ppr || 0,
         std: st.pts_std || 0,
-        date: e.date || null
+        date: e.date || null,
+        nm: asciify(pl.last_name || pl.first_name || e.player_id),
+        ps: (pl.fantasy_positions && pl.fantasy_positions[0]) || ''
       };
     }
     try {
@@ -207,6 +218,30 @@ function record(roster) {
 
 // ------------------------------------------------------------------- pipeline
 
+// One line per starter for the detail view. Names and positions come from the
+// projections already cached, so opening a league costs no extra request.
+function buildDetail(entry, proj, field, now) {
+  var out = [];
+  var starters = entry.starters || [];
+  var pts = entry.starters_points || [];
+  for (var i = 0; i < starters.length; i++) {
+    var pid = starters[i];
+    if (!pid || pid === '0') continue;
+    var p = proj[pid] || {};
+    var state = playState(pid, pts[i] || 0, proj, now);
+    var scored = pts[i] || 0;
+    // A player yet to play shows their projection, not a misleading 0.00.
+    var shown = (state === 'pending') ? (p[field] || 0) : scored;
+    out.push([
+      p.ps || '--',
+      p.nm || String(pid),
+      fmt(shown),
+      state === 'done' ? '0' : (state === 'pending' ? '1' : '2')
+    ].join(SEP));
+  }
+  return out;
+}
+
 function buildRow(cfg, league, data, proj, now) {
   var rosters = data.rosters, users = data.users, matchups = data.matchups;
 
@@ -252,7 +287,10 @@ function buildRow(cfg, league, data, proj, now) {
     return teamName(r ? userById[r.owner_id] : null);
   }
 
-  return [
+  return {
+  detail: buildDetail(me, proj, field, now),
+  title: nameFor(myRosterId),
+  row: [
     nameFor(myRosterId),
     nameFor(opp.roster_id),
     fmt(me.points),
@@ -264,7 +302,8 @@ function buildRow(cfg, league, data, proj, now) {
     String(theirs.left),
     fmt(mine.projected),
     fmt(theirs.projected)
-  ].join(SEP);
+  ].join(SEP)
+  };
 }
 
 function fetchLeague(leagueId, week, cb) {
@@ -309,6 +348,8 @@ function refresh() {
       }
       var now = today();
       var rows = new Array(cfg.leagues.length);
+      var details = new Array(cfg.leagues.length);
+      var titles = new Array(cfg.leagues.length);
       var pending = cfg.leagues.length;
 
       cfg.leagues.forEach(function (league, idx) {
@@ -316,12 +357,27 @@ function refresh() {
           if (!lerr && data.rosters && data.users && data.matchups) {
             var merged = data.league || {};
             merged.roster_id = league.roster_id;
-            rows[idx] = buildRow(cfg, merged, data, proj, now);
+            var built = buildRow(cfg, merged, data, proj, now);
+            if (built) {
+              rows[idx] = built.row;
+              details[idx] = built.detail;
+              titles[idx] = built.title;
+            }
           } else {
             console.log('league ' + league.league_id + ' failed: ' + lerr);
           }
           if (--pending === 0) {
-            var clean = rows.filter(function (r) { return !!r; });
+            // Drop failed leagues from all three together so the index the
+            // watch sends back in REQUEST_DETAIL still lines up.
+            var clean = [];
+            s_details = [];
+            s_titles = [];
+            for (var k = 0; k < rows.length; k++) {
+              if (!rows[k]) continue;
+              clean.push(rows[k]);
+              s_details.push(details[k] || []);
+              s_titles.push(titles[k] || '');
+            }
             if (clean.length === 0) {
               sendStatus('No matchups found for week ' + week, 0);
             } else {
@@ -434,10 +490,38 @@ Pebble.addEventListener('ready', function () {
   refresh();
 });
 
+// Send the starters for one league, one per message, ack-chained like the rows.
+function sendDetail(idx) {
+  var players = s_details[idx] || [];
+  var title = s_titles[idx] || '';
+  console.log('detail for league ' + idx + ': ' + players.length + ' starters');
+  if (!players.length) {
+    Pebble.sendAppMessage({ DETAIL_COUNT: 0, DETAIL_TITLE: title });
+    return;
+  }
+  var i = 0;
+  function step() {
+    if (i >= players.length) return;
+    var payload = {
+      DETAIL_IDX: i,
+      DETAIL_COUNT: players.length,
+      DETAIL_DATA: players[i]
+    };
+    if (i === 0) payload.DETAIL_TITLE = title;
+    Pebble.sendAppMessage(payload, function () { i += 1; step(); },
+                          function () { console.log('detail send failed at ' + i); });
+  }
+  step();
+}
+
 Pebble.addEventListener('appmessage', function (e) {
-  if (e.payload && e.payload.REQUEST_REFRESH) {
+  if (!e.payload) return;
+  if (e.payload.REQUEST_REFRESH) {
     console.log('refresh requested from watch');
     refresh();
+  }
+  if (typeof e.payload.REQUEST_DETAIL === 'number') {
+    sendDetail(e.payload.REQUEST_DETAIL);
   }
 });
 

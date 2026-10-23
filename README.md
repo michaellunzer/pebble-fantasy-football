@@ -28,8 +28,24 @@ readable instead of being squeezed into a list:
 | 3 | a third | — |
 | 4+ | a third | scrolls |
 
-Past three leagues the content scrolls — by finger on the touchscreen, or with
-the Up/Down buttons. Select forces a refresh.
+Past three leagues the list scrolls — by finger on the touchscreen, or with the
+Up/Down buttons.
+
+While games are live the footer shows how many starters each side still has to
+play, because a deficit only means something next to the number of players left
+to erase it; once everyone has played it reverts to the season record. Before
+kickoff the score slots show projected finals, dimmed and labelled `PROJ`.
+
+**Select** opens the matchup, listing your starters with position, name and
+points. Numbers in white are points already banked; grey ones are projections
+for players yet to play.
+
+![Detail view](screenshot_detail.png)
+
+The closest matchup also appears on the launcher via AppGlance, so the score is
+visible without opening the app. Background refresh is opt-in and off by
+default: PebbleOS gives third-party apps no silent execution, so a wakeup
+visibly launches the app for a second.
 
 ## Settings
 

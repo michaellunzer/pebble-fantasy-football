@@ -28,7 +28,12 @@
       "WEEK",
       "STATUS",
       "REQUEST_REFRESH",
-      "WAKEUP_AT"
+      "WAKEUP_AT",
+      "REQUEST_DETAIL",
+      "DETAIL_IDX",
+      "DETAIL_COUNT",
+      "DETAIL_DATA",
+      "DETAIL_TITLE"
     ],
     "resources": {
       "media": []

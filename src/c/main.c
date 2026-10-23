@@ -28,16 +28,32 @@ typedef struct {
 // would otherwise be read back misaligned and drawn as garbage.
 #define ROW_SCHEMA 2
 
+#define MAX_PLAYERS 16
+#define PLAYER_NAME 18
+
+// One starter in the detail view.
+typedef struct {
+  char pos[6];
+  char name[PLAYER_NAME];
+  char pts[PTS_LEN];
+  uint8_t state;             // 0 done, 1 still to play, 2 no game (bye/inactive)
+} PlayerRow;
+
 static Window *s_window;
-static ScrollLayer *s_scroll;
-static Layer *s_content;
+static MenuLayer *s_menu;
 static StatusBarLayer *s_status_bar;
+
+static Window *s_detail_window;
+static MenuLayer *s_detail_menu;
+static PlayerRow s_players[MAX_PLAYERS];
+static int s_player_count;
+static int s_player_expected;
+static char s_detail_title[NAME_LEN];
 
 static LeagueRow s_rows[MAX_LEAGUES];
 static int s_count;
 static int s_week;
 static int s_expected;             // LEAGUE_COUNT announced by the phone
-static int16_t s_pan_base;         // content offset committed between pans
 static char s_status[64];
 static bool s_launched_by_wakeup;   // woke to refresh, so leave again promptly
 
@@ -103,7 +119,8 @@ static bool is_pregame(const LeagueRow *r) {
   return is_zero_score(r->my_pts) && is_zero_score(r->opp_pts);
 }
 
-static void draw_row(GContext *ctx, const LeagueRow *r, GRect row) {
+static void draw_row(GContext *ctx, const LeagueRow *r, GRect row,
+                     bool selected) {
   RowStyle st = row_style(row.size.h);
 
   // Card
@@ -111,6 +128,11 @@ static void draw_row(GContext *ctx, const LeagueRow *r, GRect row) {
                      row.size.w - 6, row.size.h - 4);
   graphics_context_set_fill_color(ctx, GColorOxfordBlue);
   graphics_fill_rect(ctx, card, 6, GCornersAll);
+  if (selected) {
+    // Select now opens the detail view, so the focused card has to be obvious.
+    graphics_context_set_stroke_color(ctx, GColorMediumSpringGreen);
+    graphics_draw_round_rect(ctx, card, 6);
+  }
 
   const int16_t pad = 6;
   const int16_t inner_x = card.origin.x + pad;
@@ -184,130 +206,158 @@ static void draw_row(GContext *ctx, const LeagueRow *r, GRect row) {
             GTextAlignmentRight);
 }
 
-static void content_update(Layer *layer, GContext *ctx) {
-  GRect b = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(ctx, b, 0, GCornerNone);
+static void request_refresh(void);
+
+// ------------------------------------------------------------------ menu
+
+// 1 league fills the screen, 2 take half each, 3 a third each. Past 3 the row
+// height stays at the 3-league size and the list scrolls.
+static int16_t row_height(void) {
+  GRect b = layer_get_bounds(window_get_root_layer(s_window));
+  int16_t vis = b.size.h - STATUS_BAR_LAYER_HEIGHT;
+  int n = s_count > 0 ? s_count : 1;
+  return (n <= 3) ? (vis / n) : (vis / 3);
+}
+
+static uint16_t menu_num_rows(MenuLayer *ml, uint16_t section, void *ctx) {
+  return s_count > 0 ? s_count : 1;      // one row carries the empty state
+}
+
+static int16_t menu_cell_height(MenuLayer *ml, MenuIndex *idx, void *ctx) {
+  if (s_count == 0) {
+    GRect b = layer_get_bounds(window_get_root_layer(s_window));
+    return b.size.h - STATUS_BAR_LAYER_HEIGHT;
+  }
+  return row_height();
+}
+
+static void menu_draw_row(GContext *gctx, const Layer *cell, MenuIndex *idx,
+                          void *ctx) {
+  GRect b = layer_get_bounds(cell);
+  graphics_context_set_fill_color(gctx, GColorBlack);
+  graphics_fill_rect(gctx, b, 0, GCornerNone);
 
   if (s_count == 0) {
-    graphics_context_set_text_color(ctx, GColorWhite);
-    draw_text(ctx, s_status[0] ? s_status
-                               : "Open settings to add your Sleeper leagues",
+    graphics_context_set_text_color(gctx, GColorWhite);
+    draw_text(gctx, s_status[0] ? s_status
+                                : "Open settings to add your Sleeper leagues",
               fonts_get_system_font(FONT_KEY_GOTHIC_18),
-              GRect(10, 60, b.size.w - 20, 120), GTextAlignmentCenter);
+              GRect(10, 50, b.size.w - 20, 120), GTextAlignmentCenter);
     return;
   }
 
-  int16_t row_h = b.size.h / s_count;
-  for (int i = 0; i < s_count; i++) {
-    draw_row(ctx, &s_rows[i], GRect(0, i * row_h, b.size.w, row_h));
+  MenuIndex sel = menu_layer_get_selected_index(s_menu);
+  draw_row(gctx, &s_rows[idx->row], b, menu_index_compare(&sel, idx) == 0);
+}
+
+static void request_detail(int league_idx);
+
+static void menu_select(MenuLayer *ml, MenuIndex *idx, void *ctx) {
+  if (s_count == 0) return;
+  request_detail(idx->row);
+}
+
+// Long-press Select still forces a refresh, since Select itself now opens the
+// detail view.
+static void menu_select_long(MenuLayer *ml, MenuIndex *idx, void *ctx) {
+  request_refresh();
+}
+
+static void menu_reload(void) {
+  if (s_menu) menu_layer_reload_data(s_menu);
+}
+
+// --------------------------------------------------------- detail view menu
+
+static uint16_t detail_num_rows(MenuLayer *ml, uint16_t section, void *ctx) {
+  return s_player_count > 0 ? s_player_count : 1;
+}
+
+static int16_t detail_cell_height(MenuLayer *ml, MenuIndex *idx, void *ctx) {
+  return 30;
+}
+
+static int16_t detail_header_height(MenuLayer *ml, uint16_t section, void *ctx) {
+  return MENU_CELL_BASIC_HEADER_HEIGHT;
+}
+
+static void detail_draw_header(GContext *gctx, const Layer *cell,
+                               uint16_t section, void *ctx) {
+  GRect b = layer_get_bounds(cell);
+  graphics_context_set_fill_color(gctx, GColorOxfordBlue);
+  graphics_fill_rect(gctx, b, 0, GCornerNone);
+  graphics_context_set_text_color(gctx, GColorWhite);
+  draw_text(gctx, s_detail_title[0] ? s_detail_title : "Starters",
+            fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+            GRect(b.origin.x + 4, b.origin.y - 2, b.size.w - 8, b.size.h + 4),
+            GTextAlignmentLeft);
+}
+
+static void detail_draw_row(GContext *gctx, const Layer *cell, MenuIndex *idx,
+                            void *ctx) {
+  GRect b = layer_get_bounds(cell);
+  graphics_context_set_fill_color(gctx, GColorBlack);
+  graphics_fill_rect(gctx, b, 0, GCornerNone);
+
+  if (s_player_count == 0) {
+    graphics_context_set_text_color(gctx, GColorLightGray);
+    draw_text(gctx, "Loading\u2026", fonts_get_system_font(FONT_KEY_GOTHIC_18),
+              GRect(8, b.origin.y + 4, b.size.w - 16, 24), GTextAlignmentCenter);
+    return;
   }
+
+  const PlayerRow *pl = &s_players[idx->row];
+  // White where the number is real, grey where it is still a projection, so a
+  // glance separates points already banked from points merely expected.
+  bool played = (pl->state == 0);
+  graphics_context_set_text_color(gctx, played ? GColorWhite : GColorLightGray);
+
+  draw_text(gctx, pl->pos, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+            GRect(b.origin.x + 5, b.origin.y + 5, 32, 20), GTextAlignmentLeft);
+  draw_text(gctx, pl->name, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+            GRect(b.origin.x + 38, b.origin.y + 2, b.size.w - 96, 24),
+            GTextAlignmentLeft);
+  draw_text(gctx, pl->state == 2 ? "\u2013" : pl->pts,
+            fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+            GRect(b.origin.x + b.size.w - 56, b.origin.y + 2, 50, 24),
+            GTextAlignmentRight);
 }
 
-// ---------------------------------------------------------------- scroll sizing
-
-static int16_t visible_height(void) {
-  GRect b = layer_get_bounds(window_get_root_layer(s_window));
-  return b.size.h - STATUS_BAR_LAYER_HEIGHT;
+static void detail_window_load(Window *window) {
+  Layer *root = window_get_root_layer(window);
+  GRect b = layer_get_bounds(root);
+  s_detail_menu = menu_layer_create(b);
+  menu_layer_set_callbacks(s_detail_menu, NULL, (MenuLayerCallbacks) {
+    .get_num_rows = detail_num_rows,
+    .get_cell_height = detail_cell_height,
+    .get_header_height = detail_header_height,
+    .draw_header = detail_draw_header,
+    .draw_row = detail_draw_row,
+  });
+  menu_layer_set_normal_colors(s_detail_menu, GColorBlack, GColorWhite);
+  menu_layer_set_highlight_colors(s_detail_menu, GColorOxfordBlue, GColorWhite);
+  menu_layer_set_click_config_onto_window(s_detail_menu, window);
+  layer_add_child(root, menu_layer_get_layer(s_detail_menu));
 }
 
-static void relayout(void) {
-  int16_t vis = visible_height();
-  int16_t w = layer_get_bounds(window_get_root_layer(s_window)).size.w;
-  int n = s_count > 0 ? s_count : 1;
-  // 1 league fills the screen, 2 take half each, 3 a third each. Past 3 the row
-  // height stays at the 3-league size and the content scrolls.
-  int16_t row_h = (n <= 3) ? (vis / n) : (vis / 3);
-  int16_t content_h = (s_count > 0) ? row_h * s_count : vis;
-  if (content_h < vis) content_h = vis;
-
-  layer_set_frame(s_content, GRect(0, 0, w, content_h));
-  layer_set_bounds(s_content, GRect(0, 0, w, content_h));
-  scroll_layer_set_content_size(s_scroll, GSize(w, content_h));
-  scroll_layer_set_content_offset(s_scroll, GPoint(0, 0), false);
-  s_pan_base = 0;
-  layer_mark_dirty(s_content);
+static void detail_window_unload(Window *window) {
+  menu_layer_destroy(s_detail_menu);
+  s_detail_menu = NULL;
+  window_destroy(s_detail_window);
+  s_detail_window = NULL;
 }
 
-// ---------------------------------------------------------------- touch (pan)
-
-// SDK 4.33 added gesture recognizers, which are the right way to scroll a
-// ScrollLayer by finger. Older SDKs still expose the raw TouchService, so keep
-// a hand-rolled equivalent for them: the 4.33 firmware does not currently boot
-// in the QEMU emulator, and the fallback is what lets the app be demonstrated
-// there. Both paths drive the same scroll offset.
-#ifdef _PBL_API_EXISTS_pan_recognizer_create
-#define HAVE_RECOGNIZERS 1
-#else
-#define HAVE_RECOGNIZERS 0
-#endif
-
-#if HAVE_RECOGNIZERS
-
-static void pan_handler(const Recognizer *recognizer, RecognizerEvent event) {
-  switch (event) {
-    case RecognizerEvent_Updated: {
-      // delta_since_start is (0,0) at Started, so the content never jumps.
-      GPoint d = pan_recognizer_get_delta_since_start(recognizer);
-      scroll_layer_set_content_offset(s_scroll, GPoint(0, s_pan_base + d.y),
-                                      false);
-      break;
-    }
-    case RecognizerEvent_Completed:
-      s_pan_base = scroll_layer_get_content_offset(s_scroll).y;
-      break;
-    case RecognizerEvent_Cancelled:
-      scroll_layer_set_content_offset(s_scroll, GPoint(0, s_pan_base), true);
-      break;
-    default:
-      break;
-  }
+static void show_detail_window(void) {
+  s_player_count = 0;
+  s_player_expected = 0;
+  s_detail_window = window_create();
+  window_set_background_color(s_detail_window, GColorBlack);
+  window_set_window_handlers(s_detail_window, (WindowHandlers) {
+    .load = detail_window_load,
+    .unload = detail_window_unload,
+  });
+  window_stack_push(s_detail_window, true);
 }
-
-static void touch_attach(Window *window) {
-  // Take the touch stream off the system button bridge so the pan recognizer
-  // sees it, then drive the ScrollLayer from the pan.
-  window_set_touch_bridge_disabled(window, true);
-  window_attach_recognizer(window, pan_recognizer_create(pan_handler, NULL,
-                                                         PanAxis_Vertical));
-}
-
-static void touch_enable_app(void) { app_touch_navigation_enable(true); }
-
-#else   /* pre-4.33: drive the scroll from raw touch events */
-
-static int16_t s_touch_origin;
-static bool s_touch_active;
-
-static void touch_handler(const TouchEvent *event, void *context) {
-  switch (event->type) {
-    case TouchEvent_Touchdown:
-      s_touch_origin = event->y;
-      s_touch_active = true;
-      break;
-    case TouchEvent_PositionUpdate:
-      if (s_touch_active) {
-        scroll_layer_set_content_offset(
-            s_scroll, GPoint(0, s_pan_base + (event->y - s_touch_origin)),
-            false);
-      }
-      break;
-    case TouchEvent_Liftoff:
-      s_touch_active = false;
-      s_pan_base = scroll_layer_get_content_offset(s_scroll).y;
-      break;
-    default:
-      break;
-  }
-}
-
-static void touch_attach(Window *window) { (void)window; }
-
-static void touch_enable_app(void) {
-  touch_service_subscribe(touch_handler, NULL);
-}
-
-#endif
 
 // ---------------------------------------------------------------- persistence
 
@@ -376,6 +426,27 @@ static void parse_league(int idx, const char *data) {
   r->my_win = (uint8_t)w;
 }
 
+static void parse_player(int idx, const char *data) {
+  if (idx < 0 || idx >= MAX_PLAYERS) return;
+  PlayerRow *pl = &s_players[idx];
+  char st[4];
+  const char *p = data;
+  p = take_field(p, pl->pos,  sizeof(pl->pos));
+  p = take_field(p, pl->name, PLAYER_NAME);
+  p = take_field(p, pl->pts,  PTS_LEN);
+  p = take_field(p, st,       sizeof(st));
+  pl->state = (uint8_t)atoi(st);
+}
+
+static void request_detail(int league_idx) {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
+    dict_write_int32(iter, MESSAGE_KEY_REQUEST_DETAIL, league_idx);
+    app_message_outbox_send();
+    show_detail_window();
+  }
+}
+
 // window_stack_pop_all takes a bool, not the void* an AppTimerCallback is handed,
 // so it needs a wrapper rather than a cast.
 static void exit_after_wakeup(void *data) {
@@ -409,6 +480,30 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     }
   }
 
+  Tuple *t_title = dict_find(iter, MESSAGE_KEY_DETAIL_TITLE);
+  if (t_title) {
+    strncpy(s_detail_title, t_title->value->cstring, NAME_LEN - 1);
+    s_detail_title[NAME_LEN - 1] = '\0';
+  }
+
+  Tuple *t_dcount = dict_find(iter, MESSAGE_KEY_DETAIL_COUNT);
+  if (t_dcount) {
+    s_player_expected = t_dcount->value->int32;
+    if (s_player_expected > MAX_PLAYERS) s_player_expected = MAX_PLAYERS;
+    s_player_count = 0;
+  }
+
+  Tuple *t_didx  = dict_find(iter, MESSAGE_KEY_DETAIL_IDX);
+  Tuple *t_ddata = dict_find(iter, MESSAGE_KEY_DETAIL_DATA);
+  if (t_didx && t_ddata) {
+    int di = t_didx->value->int32;
+    parse_player(di, t_ddata->value->cstring);
+    if (di + 1 > s_player_count) s_player_count = di + 1;
+    if (s_player_count > MAX_PLAYERS) s_player_count = MAX_PLAYERS;
+    if (s_detail_menu) menu_layer_reload_data(s_detail_menu);
+    return;      // detail traffic never touches the league list
+  }
+
   Tuple *t_count = dict_find(iter, MESSAGE_KEY_LEAGUE_COUNT);
   if (t_count) {
     s_expected = t_count->value->int32;
@@ -416,7 +511,7 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (s_expected > MAX_LEAGUES) s_expected = MAX_LEAGUES;
     if (s_expected == 0) {
       s_count = 0;
-      relayout();
+      menu_reload();
     }
   }
 
@@ -434,12 +529,10 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     if (s_expected > 0 && idx == s_expected - 1) {
       s_count = s_expected;
       save_rows();
-      relayout();
-    } else {
-      layer_mark_dirty(s_content);
     }
+    menu_reload();
   } else if (t_status) {
-    layer_mark_dirty(s_content);
+    menu_reload();
   }
 }
 
@@ -457,16 +550,6 @@ static void request_refresh(void) {
 
 // ---------------------------------------------------------------- window
 
-static void select_click(ClickRecognizerRef recognizer, void *context) {
-  request_refresh();
-}
-
-// Called by the ScrollLayer after it has claimed Up/Down, so Select is ours
-// without disturbing scrolling.
-static void click_config(void *context) {
-  window_single_click_subscribe(BUTTON_ID_SELECT, select_click);
-}
-
 static void window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect b = layer_get_bounds(root);
@@ -477,30 +560,28 @@ static void window_load(Window *window) {
                                       StatusBarLayerSeparatorModeNone);
   layer_add_child(root, status_bar_layer_get_layer(s_status_bar));
 
-  GRect scroll_frame = GRect(0, STATUS_BAR_LAYER_HEIGHT, b.size.w,
-                             b.size.h - STATUS_BAR_LAYER_HEIGHT);
-  s_scroll = scroll_layer_create(scroll_frame);
-  scroll_layer_set_shadow_hidden(s_scroll, true);
-  scroll_layer_set_callbacks(s_scroll, (ScrollLayerCallbacks) {
-    .click_config_provider = click_config,
+  // MenuLayer rather than a ScrollLayer: on 4.33 it scrolls by touch on its
+  // own, and it brings row selection and Select handling with it, which the
+  // detail view needs. That replaces the hand-driven pan recognizer entirely.
+  s_menu = menu_layer_create(GRect(0, STATUS_BAR_LAYER_HEIGHT, b.size.w,
+                                   b.size.h - STATUS_BAR_LAYER_HEIGHT));
+  menu_layer_set_callbacks(s_menu, NULL, (MenuLayerCallbacks) {
+    .get_num_rows = menu_num_rows,
+    .get_cell_height = menu_cell_height,
+    .draw_row = menu_draw_row,
+    .select_click = menu_select,
+    .select_long_click = menu_select_long,
   });
-  scroll_layer_set_click_config_onto_window(s_scroll, window);
-
-  s_content = layer_create(GRect(0, 0, scroll_frame.size.w,
-                                 scroll_frame.size.h));
-  layer_set_update_proc(s_content, content_update);
-  scroll_layer_add_child(s_scroll, s_content);
-  layer_add_child(root, scroll_layer_get_layer(s_scroll));
-
-  // A bare ScrollLayer does not scroll by touch on its own.
-  touch_attach(window);
-
-  relayout();
+  // The rows paint their own cards, so the menu's own highlight stays out of
+  // the way and selection is shown by the card border instead.
+  menu_layer_set_normal_colors(s_menu, GColorBlack, GColorWhite);
+  menu_layer_set_highlight_colors(s_menu, GColorBlack, GColorWhite);
+  menu_layer_set_click_config_onto_window(s_menu, window);
+  layer_add_child(root, menu_layer_get_layer(s_menu));
 }
 
 static void window_unload(Window *window) {
-  layer_destroy(s_content);
-  scroll_layer_destroy(s_scroll);
+  menu_layer_destroy(s_menu);
   status_bar_layer_destroy(s_status_bar);
 }
 
@@ -515,8 +596,12 @@ static void init(void) {
     .unload = window_unload,
   });
 
-  // Make the app touch-aware (opt-in on 4.33+, a raw subscription before).
-  touch_enable_app();
+  // MenuLayer scrolls by touch on 4.33, but only for apps that opt in to the
+  // system touch-navigation bridge; third-party apps are opted out by default.
+  // Older SDKs have no such call, and MenuLayer there is buttons-only.
+#ifdef _PBL_API_EXISTS_app_touch_navigation_enable
+  app_touch_navigation_enable(true);
+#endif
 
   app_message_register_inbox_received(inbox_received);
   app_message_register_inbox_dropped(inbox_dropped);
