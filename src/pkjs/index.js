@@ -6,11 +6,10 @@
  */
 
 var API = 'https://api.sleeper.app';
-// Served from GitHub Pages. This account's Pages custom domain is
-// archive.michaellunzer.com, so michaellunzer.github.io only redirects here;
-// point at the canonical host directly rather than relying on the config
-// webview following a redirect.
-var CONFIG_URL = 'https://archive.michaellunzer.com/pebble-fantasy-football/config.html';
+// Served from GitHub Pages on this project's own subdomain. It is compiled
+// into the .pbw and sideloaded onto the watch, so it must stay stable:
+// changing it means rebuilding and reinstalling on every watch.
+var CONFIG_URL = 'https://pebble-fantasy-football.michaellunzer.com/config.html';
 var SEP = '\x1F';
 
 // Per-player standard deviation used to spread the projected margin. Tuned so

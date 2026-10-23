@@ -83,7 +83,7 @@ pebble screenshot --no-open --emulator emery --sdk 4.9.169
 ## Settings page hosting
 
 `config.html` is served from GitHub Pages at
-https://archive.michaellunzer.com/pebble-fantasy-football/config.html , and `CONFIG_URL` in
+https://pebble-fantasy-football.michaellunzer.com/config.html , and `CONFIG_URL` in
 `src/pkjs/index.js` points at it. Sleeper's API sends
 `Access-Control-Allow-Origin: *`, so the page queries it straight from the
 browser with no proxy.
