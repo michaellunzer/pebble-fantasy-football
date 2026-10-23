@@ -29,7 +29,7 @@ static int s_count;
 static int s_week;
 static int s_expected;             // LEAGUE_COUNT announced by the phone
 static int16_t s_pan_base;         // content offset committed between pans
-static char s_status[40];
+static char s_status[64];
 
 // ---------------------------------------------------------------- layout tiers
 

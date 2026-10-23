@@ -2,7 +2,9 @@
   "name": "fantasy-football",
   "author": "Michael Lunzer",
   "version": "1.0.0",
-  "keywords": ["pebble-app"],
+  "keywords": [
+    "pebble-app"
+  ],
   "private": true,
   "dependencies": {},
   "pebble": {
@@ -10,7 +12,12 @@
     "uuid": "49240ea5-b8e4-4fce-8988-1f3025173fb7",
     "sdkVersion": "3",
     "enableMultiJS": true,
-    "targetPlatforms": ["emery"],
+    "capabilities": [
+      "configurable"
+    ],
+    "targetPlatforms": [
+      "emery"
+    ],
     "watchapp": {
       "watchface": false
     },
