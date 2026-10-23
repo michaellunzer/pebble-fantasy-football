@@ -334,6 +334,63 @@ function refresh() {
   });
 }
 
+// ---------------------------------------------------------------- app glance
+
+// Put the closest matchup on the launcher, so the score is visible without
+// opening the app. "Closest" means nearest a coin-flip, which is the one worth
+// looking at; a 95% blowout is not news.
+function updateGlance(rows, week) {
+  if (!rows.length) return;
+
+  var best = null, bestGap = 999;
+  rows.forEach(function (row) {
+    var f = row.split(SEP);
+    var gap = Math.abs(parseInt(f[4], 10) - 50);
+    if (gap < bestGap) { bestGap = gap; best = f; }
+  });
+  if (!best) return;
+
+  var pregame = parseFloat(best[2]) === 0 && parseFloat(best[3]) === 0;
+  var subtitle = pregame
+    ? best[0] + ' vs ' + best[1] + '  ' + best[4] + '%'
+    : best[0] + ' ' + best[2] + '-' + best[3] + '  ' + best[4] + '%';
+
+  // Expire a week out so a stale score cannot sit on the launcher forever.
+  var expiry = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+
+  try {
+    Pebble.appGlanceReload([{
+      layout: {
+        icon: 'system://images/SCHEDULED_EVENT',
+        subtitleTemplateString: subtitle.substring(0, 40)
+      },
+      expirationTime: expiry
+    }], function () {
+      console.log('glance updated: ' + subtitle);
+    }, function () {
+      console.log('glance reload failed');
+    });
+  } catch (e) {
+    console.log('appGlanceReload unavailable: ' + e);
+  }
+}
+
+// ------------------------------------------------------------ scheduled wake
+
+// Exactly one wakeup is ever pending: each run cancels and re-arms. That keeps
+// us clear of the 8-slot-per-app limit no matter how long the season runs.
+// Only armed when the user opts in, because a wakeup visibly launches the app.
+function nextWakeupAt(rows) {
+  var anyLive = rows.some(function (row) {
+    var f = row.split(SEP);
+    var left = parseInt(f[7], 10) + parseInt(f[8], 10);
+    var scored = parseFloat(f[2]) > 0 || parseFloat(f[3]) > 0;
+    return left > 0 && scored;
+  });
+  if (!anyLive) return 0;              // nothing in flight; do not wake
+  return Math.floor(Date.now() / 1000) + 30 * 60;
+}
+
 // ------------------------------------------------------------- watch transport
 
 function sendStatus(text, week) {
@@ -343,6 +400,7 @@ function sendStatus(text, week) {
 // One league per message, each sent only after the previous is acknowledged.
 function sendRows(rows, week) {
   console.log('sending ' + rows.length + ' leagues for week ' + week);
+  updateGlance(rows, week);
   var i = 0;
   function step() {
     if (i >= rows.length) return;
@@ -352,6 +410,11 @@ function sendRows(rows, week) {
       LEAGUE_DATA: rows[i],
       WEEK: week || 0
     };
+    // Ride the wakeup time along with the last league of the batch.
+    if (i === rows.length - 1) {
+      var cfg = settings();
+      payload.WAKEUP_AT = (cfg && cfg.autoRefresh) ? nextWakeupAt(rows) : 0;
+    }
     Pebble.sendAppMessage(payload, function () {
       i += 1;
       step();

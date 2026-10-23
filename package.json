@@ -27,7 +27,8 @@
       "LEAGUE_DATA",
       "WEEK",
       "STATUS",
-      "REQUEST_REFRESH"
+      "REQUEST_REFRESH",
+      "WAKEUP_AT"
     ],
     "resources": {
       "media": []

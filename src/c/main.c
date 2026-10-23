@@ -39,6 +39,7 @@ static int s_week;
 static int s_expected;             // LEAGUE_COUNT announced by the phone
 static int16_t s_pan_base;         // content offset committed between pans
 static char s_status[64];
+static bool s_launched_by_wakeup;   // woke to refresh, so leave again promptly
 
 // ---------------------------------------------------------------- layout tiers
 
@@ -375,6 +376,12 @@ static void parse_league(int idx, const char *data) {
   r->my_win = (uint8_t)w;
 }
 
+// window_stack_pop_all takes a bool, not the void* an AppTimerCallback is handed,
+// so it needs a wrapper rather than a cast.
+static void exit_after_wakeup(void *data) {
+  window_stack_pop_all(false);
+}
+
 static void inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *t_status = dict_find(iter, MESSAGE_KEY_STATUS);
   if (t_status) {
@@ -384,6 +391,23 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *t_week = dict_find(iter, MESSAGE_KEY_WEEK);
   if (t_week) s_week = t_week->value->int32;
+
+  // Exactly one wakeup is ever pending: cancel whatever was armed and re-arm
+  // from the time the phone just gave us. 0 means "nothing live, do not wake".
+  Tuple *t_wake = dict_find(iter, MESSAGE_KEY_WAKEUP_AT);
+  if (t_wake) {
+    wakeup_cancel_all();
+    time_t when = (time_t)t_wake->value->int32;
+    if (when > time(NULL)) {
+      wakeup_schedule(when, 0, true);
+      APP_LOG(APP_LOG_LEVEL_INFO, "next wakeup in %d min",
+              (int)((when - time(NULL)) / 60));
+    }
+    // We only woke to refresh the glance; do not sit in front of the user.
+    if (s_launched_by_wakeup) {
+      app_timer_register(2000, exit_after_wakeup, NULL);
+    }
+  }
 
   Tuple *t_count = dict_find(iter, MESSAGE_KEY_LEAGUE_COUNT);
   if (t_count) {
@@ -482,6 +506,7 @@ static void window_unload(Window *window) {
 
 static void init(void) {
   load_rows();
+  s_launched_by_wakeup = (launch_reason() == APP_LAUNCH_WAKEUP);
 
   s_window = window_create();
   window_set_background_color(s_window, GColorBlack);

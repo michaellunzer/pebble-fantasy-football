@@ -51,6 +51,11 @@
   input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
   .meta { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
   #save { width: 100%; margin-top: 20px; padding: 15px; font-size: 17px; }
+  #opts { margin-top: 18px; background: var(--card); border: 1px solid var(--line);
+          border-radius: 12px; }
+  label.opt { display: flex; align-items: flex-start; gap: 12px; padding: 14px;
+              margin: 0; color: var(--text); font-size: 16px; cursor: pointer; }
+  label.opt .meta { display: block; margin-top: 4px; }
   .hint { color: var(--muted); font-size: 13px; margin-top: 18px; }
 </style>
 </head>
@@ -68,6 +73,19 @@
 <p id="msg"></p>
 
 <ul id="leagues"></ul>
+
+<div id="opts" style="display:none">
+  <label class="opt">
+    <input type="checkbox" id="autorefresh">
+    <span>
+      <strong>Refresh in the background</strong>
+      <span class="meta">While games are live, the watch wakes every 30 minutes
+      to update the launcher score. This briefly opens the app on your watch,
+      so it is off by default.</span>
+    </span>
+  </label>
+</div>
+
 <button id="save" style="display:none">Save to watch</button>
 
 <p class="hint">Leagues are read from Sleeper's public API. Nothing is sent anywhere else.</p>
@@ -90,9 +108,13 @@
   var found = { user_id: null, username: null, leagues: [] };
   var preselected = {};
 
+  var elOpts = document.getElementById('opts');
+  var elAuto = document.getElementById('autorefresh');
+
   if (current && current.username) {
     elUser.value = current.username;
     (current.leagues || []).forEach(function (l) { preselected[l.league_id] = true; });
+    elAuto.checked = !!current.autoRefresh;
   }
 
   function say(text, cls) {
@@ -194,6 +216,7 @@
       elList.appendChild(li);
     });
     elSave.style.display = 'block';
+    elOpts.style.display = 'block';
     elSearch.disabled = false;
   }
 
@@ -210,7 +233,8 @@
     var payload = {
       user_id: found.user_id,
       username: found.username,
-      leagues: picked
+      leagues: picked,
+      autoRefresh: elAuto.checked
     };
     location.href = returnTo + encodeURIComponent(JSON.stringify(payload));
   }
