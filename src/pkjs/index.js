@@ -24,7 +24,6 @@ var DEMO_LEAGUES = null;
 // Per-league starter lines, held so opening a league needs no refetch. Index
 // matches the order the rows were sent to the watch.
 var s_details = [];
-var s_titles = [];
 
 // ------------------------------------------------------------------ utilities
 
@@ -136,7 +135,9 @@ function loadProjections(season, week, cb) {
         std: st.pts_std || 0,
         date: e.date || null,
         nm: asciify(pl.last_name || pl.first_name || e.player_id),
-        ps: (pl.fantasy_positions && pl.fantasy_positions[0]) || ''
+        ps: (pl.fantasy_positions && pl.fantasy_positions[0]) || '',
+        tm: e.team || '',
+        op: e.opponent || ''
       };
     }
     try {
@@ -230,12 +231,16 @@ function buildDetail(entry, proj, field, now) {
     var p = proj[pid] || {};
     var state = playState(pid, pts[i] || 0, proj, now);
     var scored = pts[i] || 0;
-    // A player yet to play shows their projection, not a misleading 0.00.
-    var shown = (state === 'pending') ? (p[field] || 0) : scored;
+    // Actual and projected both go over, so the watch can stack them the way
+    // the Sleeper app does: what was banked above what is still expected.
+    var actual = (state === 'pending') ? '-' : fmt(scored);
+    var matchup = p.tm ? (p.op ? p.tm + ' \u00b7 ' + p.op : p.tm) : '';
     out.push([
       p.ps || '--',
       p.nm || String(pid),
-      fmt(shown),
+      actual,
+      fmt(p[field] || 0),
+      matchup,
       state === 'done' ? '0' : (state === 'pending' ? '1' : '2')
     ].join(SEP));
   }
@@ -289,7 +294,9 @@ function buildRow(cfg, league, data, proj, now) {
 
   return {
   detail: buildDetail(me, proj, field, now),
+  detailOpp: buildDetail(opp, proj, field, now),
   title: nameFor(myRosterId),
+  titleOpp: nameFor(opp.roster_id),
   row: [
     nameFor(myRosterId),
     nameFor(opp.roster_id),
@@ -349,7 +356,6 @@ function refresh() {
       var now = today();
       var rows = new Array(cfg.leagues.length);
       var details = new Array(cfg.leagues.length);
-      var titles = new Array(cfg.leagues.length);
       var pending = cfg.leagues.length;
 
       cfg.leagues.forEach(function (league, idx) {
@@ -360,8 +366,12 @@ function refresh() {
             var built = buildRow(cfg, merged, data, proj, now);
             if (built) {
               rows[idx] = built.row;
-              details[idx] = built.detail;
-              titles[idx] = built.title;
+              details[idx] = {
+                mine: built.detail,
+                theirs: built.detailOpp,
+                title: built.title,
+                titleOpp: built.titleOpp
+              };
             }
           } else {
             console.log('league ' + league.league_id + ' failed: ' + lerr);
@@ -371,12 +381,10 @@ function refresh() {
             // watch sends back in REQUEST_DETAIL still lines up.
             var clean = [];
             s_details = [];
-            s_titles = [];
             for (var k = 0; k < rows.length; k++) {
               if (!rows[k]) continue;
               clean.push(rows[k]);
-              s_details.push(details[k] || []);
-              s_titles.push(titles[k] || '');
+              s_details.push(details[k] || null);
             }
             if (clean.length === 0) {
               sendStatus('No matchups found for week ' + week, 0);
@@ -491,10 +499,16 @@ Pebble.addEventListener('ready', function () {
 });
 
 // Send the starters for one league, one per message, ack-chained like the rows.
-function sendDetail(idx) {
-  var players = s_details[idx] || [];
-  var title = s_titles[idx] || '';
-  console.log('detail for league ' + idx + ': ' + players.length + ' starters');
+function sendDetail(idx, side) {
+  var d = s_details[idx];
+  if (!d) { Pebble.sendAppMessage({ DETAIL_COUNT: 0, DETAIL_TITLE: '' }); return; }
+  var mine = (side !== 1);
+  var players = mine ? d.mine : d.theirs;
+  // Title carries both names: whose lineup this is, and whose Select switches
+  // to, so the watch can show the toggle without another round trip.
+  var title = (mine ? d.title : d.titleOpp) + SEP + (mine ? d.titleOpp : d.title);
+  console.log('detail for league ' + idx + ' (' + (mine ? 'mine' : 'opponent') +
+              '): ' + players.length + ' starters');
   if (!players.length) {
     Pebble.sendAppMessage({ DETAIL_COUNT: 0, DETAIL_TITLE: title });
     return;
@@ -521,7 +535,7 @@ Pebble.addEventListener('appmessage', function (e) {
     refresh();
   }
   if (typeof e.payload.REQUEST_DETAIL === 'number') {
-    sendDetail(e.payload.REQUEST_DETAIL);
+    sendDetail(e.payload.REQUEST_DETAIL, e.payload.DETAIL_SIDE || 0);
   }
 });
 

@@ -36,11 +36,17 @@ play, because a deficit only means something next to the number of players left
 to erase it; once everyone has played it reverts to the season record. Before
 kickoff the score slots show projected finals, dimmed and labelled `PROJ`.
 
-**Select** opens the matchup, listing your starters with position, name and
-points. Numbers in white are points already banked; grey ones are projections
-for players yet to play.
+**Select** opens the matchup, laid out the way the Sleeper app lays out a
+lineup: a colour-coded position chip, the player's name over their matchup, and
+on the right the points banked so far stacked above what they are projected to
+finish on. A dash means they have not played yet, so the projection underneath
+is all there is to go on.
 
-![Detail view](screenshot_detail.png)
+Select again switches to your opponent's lineup; the header names whichever
+team you would switch to.
+
+![Your lineup](screenshot_detail.png)
+![Opponent's lineup](screenshot_detail_opponent.png)
 
 The closest matchup also appears on the launcher via AppGlance, so the score is
 visible without opening the app. Background refresh is opt-in and off by

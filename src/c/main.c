@@ -35,7 +35,9 @@ typedef struct {
 typedef struct {
   char pos[6];
   char name[PLAYER_NAME];
-  char pts[PTS_LEN];
+  char actual[PTS_LEN];      // points banked, or "-" before their game
+  char proj[PTS_LEN];        // what they are projected to finish on
+  char matchup[14];          // "SF \u00b7 ATL"
   uint8_t state;             // 0 done, 1 still to play, 2 no game (bye/inactive)
 } PlayerRow;
 
@@ -48,7 +50,10 @@ static MenuLayer *s_detail_menu;
 static PlayerRow s_players[MAX_PLAYERS];
 static int s_player_count;
 static int s_player_expected;
-static char s_detail_title[NAME_LEN];
+static char s_detail_title[NAME_LEN];   // whose lineup is on screen
+static char s_detail_other[NAME_LEN];   // whose lineup Select switches to
+static int s_detail_league = -1;        // which league the detail view is for
+static int s_detail_side;               // 0 = my team, 1 = the opponent's
 
 static LeagueRow s_rows[MAX_LEAGUES];
 static int s_count;
@@ -274,7 +279,7 @@ static uint16_t detail_num_rows(MenuLayer *ml, uint16_t section, void *ctx) {
 }
 
 static int16_t detail_cell_height(MenuLayer *ml, MenuIndex *idx, void *ctx) {
-  return 30;
+  return 36;        // two stacked lines, as the Sleeper app lays a starter out
 }
 
 static int16_t detail_header_height(MenuLayer *ml, uint16_t section, void *ctx) {
@@ -289,8 +294,31 @@ static void detail_draw_header(GContext *gctx, const Layer *cell,
   graphics_context_set_text_color(gctx, GColorWhite);
   draw_text(gctx, s_detail_title[0] ? s_detail_title : "Starters",
             fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-            GRect(b.origin.x + 4, b.origin.y - 2, b.size.w - 8, b.size.h + 4),
+            GRect(b.origin.x + 4, b.origin.y - 2, (b.size.w / 2) - 6, b.size.h + 4),
             GTextAlignmentLeft);
+  // Name the other lineup on the right, so the toggle advertises itself.
+  if (s_detail_other[0]) {
+    char hint[NAME_LEN + 4];
+    snprintf(hint, sizeof(hint), "%s \u203a", s_detail_other);
+    graphics_context_set_text_color(gctx, GColorLightGray);
+    draw_text(gctx, hint, fonts_get_system_font(FONT_KEY_GOTHIC_14),
+              GRect(b.origin.x + b.size.w / 2, b.origin.y - 2,
+                    (b.size.w / 2) - 4, b.size.h + 4),
+              GTextAlignmentRight);
+  }
+}
+
+// Sleeper colour-codes the position chip, and that colour is how you find a
+// slot without reading. Keep the same associations: QB pink, RB green, WR blue,
+// TE orange, K purple, DEF sand.
+static GColor position_color(const char *pos) {
+  if (strcmp(pos, "QB") == 0)  return GColorMelon;
+  if (strcmp(pos, "RB") == 0)  return GColorMintGreen;
+  if (strcmp(pos, "WR") == 0)  return GColorPictonBlue;
+  if (strcmp(pos, "TE") == 0)  return GColorRajah;
+  if (strcmp(pos, "K") == 0)   return GColorLavenderIndigo;
+  if (strcmp(pos, "DEF") == 0) return GColorPastelYellow;
+  return GColorCeleste;                      // FLEX and anything unexpected
 }
 
 static void detail_draw_row(GContext *gctx, const Layer *cell, MenuIndex *idx,
@@ -302,25 +330,57 @@ static void detail_draw_row(GContext *gctx, const Layer *cell, MenuIndex *idx,
   if (s_player_count == 0) {
     graphics_context_set_text_color(gctx, GColorLightGray);
     draw_text(gctx, "Loading\u2026", fonts_get_system_font(FONT_KEY_GOTHIC_18),
-              GRect(8, b.origin.y + 4, b.size.w - 16, 24), GTextAlignmentCenter);
+              GRect(8, b.origin.y + 8, b.size.w - 16, 24), GTextAlignmentCenter);
     return;
   }
 
   const PlayerRow *pl = &s_players[idx->row];
-  // White where the number is real, grey where it is still a projection, so a
-  // glance separates points already banked from points merely expected.
+  int16_t y = b.origin.y;
+
+  // Position chip
+  GRect chip = GRect(b.origin.x + 4, y + 4, 30, 17);
+  graphics_context_set_fill_color(gctx, position_color(pl->pos));
+  graphics_fill_rect(gctx, chip, 4, GCornersAll);
+  graphics_context_set_text_color(gctx, GColorBlack);
+  draw_text(gctx, pl->pos, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
+            GRect(chip.origin.x, chip.origin.y - 2, chip.size.w, chip.size.h + 4),
+            GTextAlignmentCenter);
+
+  // Name over matchup on the left
+  int16_t tx = b.origin.x + 38;
+  int16_t tw = b.size.w - 38 - 56;
+  graphics_context_set_text_color(gctx, GColorWhite);
+  draw_text(gctx, pl->name, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+            GRect(tx, y + 1, tw, 20), GTextAlignmentLeft);
+  graphics_context_set_text_color(gctx, GColorLightGray);
+  draw_text(gctx, pl->matchup, fonts_get_system_font(FONT_KEY_GOTHIC_14),
+            GRect(tx, y + 19, tw, 16), GTextAlignmentLeft);
+
+  // Actual over projected on the right, the way the app stacks them: the bold
+  // number is what is banked, the grey one underneath is what is still expected.
+  int16_t rx = b.origin.x + b.size.w - 54;
   bool played = (pl->state == 0);
   graphics_context_set_text_color(gctx, played ? GColorWhite : GColorLightGray);
-
-  draw_text(gctx, pl->pos, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-            GRect(b.origin.x + 5, b.origin.y + 5, 32, 20), GTextAlignmentLeft);
-  draw_text(gctx, pl->name, fonts_get_system_font(FONT_KEY_GOTHIC_18),
-            GRect(b.origin.x + 38, b.origin.y + 2, b.size.w - 96, 24),
-            GTextAlignmentLeft);
-  draw_text(gctx, pl->state == 2 ? "\u2013" : pl->pts,
+  draw_text(gctx, pl->state == 2 ? "\u2013" : pl->actual,
             fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-            GRect(b.origin.x + b.size.w - 56, b.origin.y + 2, 50, 24),
-            GTextAlignmentRight);
+            GRect(rx, y + 1, 50, 20), GTextAlignmentRight);
+  graphics_context_set_text_color(gctx, GColorDarkGray);
+  draw_text(gctx, pl->proj, fonts_get_system_font(FONT_KEY_GOTHIC_14),
+            GRect(rx, y + 19, 50, 16), GTextAlignmentRight);
+}
+
+static void request_detail_side(int league_idx, int side);
+
+static void detail_select(MenuLayer *ml, MenuIndex *idx, void *ctx) {
+  if (s_detail_league < 0) return;
+  s_detail_side = s_detail_side ? 0 : 1;
+  s_player_count = 0;                       // show Loading while it arrives
+  menu_layer_reload_data(s_detail_menu);
+  // Back to the top: the other lineup is a different list, and keeping the old
+  // scroll position drops you into the middle of it with the header off screen.
+  menu_layer_set_selected_index(s_detail_menu, (MenuIndex) { 0, 0 },
+                                MenuRowAlignTop, false);
+  request_detail_side(s_detail_league, s_detail_side);
 }
 
 static void detail_window_load(Window *window) {
@@ -333,6 +393,7 @@ static void detail_window_load(Window *window) {
     .get_header_height = detail_header_height,
     .draw_header = detail_draw_header,
     .draw_row = detail_draw_row,
+    .select_click = detail_select,
   });
   menu_layer_set_normal_colors(s_detail_menu, GColorBlack, GColorWhite);
   menu_layer_set_highlight_colors(s_detail_menu, GColorOxfordBlue, GColorWhite);
@@ -431,20 +492,30 @@ static void parse_player(int idx, const char *data) {
   PlayerRow *pl = &s_players[idx];
   char st[4];
   const char *p = data;
-  p = take_field(p, pl->pos,  sizeof(pl->pos));
-  p = take_field(p, pl->name, PLAYER_NAME);
-  p = take_field(p, pl->pts,  PTS_LEN);
-  p = take_field(p, st,       sizeof(st));
+  p = take_field(p, pl->pos,     sizeof(pl->pos));
+  p = take_field(p, pl->name,    PLAYER_NAME);
+  p = take_field(p, pl->actual,  PTS_LEN);
+  p = take_field(p, pl->proj,    PTS_LEN);
+  p = take_field(p, pl->matchup, sizeof(pl->matchup));
+  p = take_field(p, st,          sizeof(st));
   pl->state = (uint8_t)atoi(st);
 }
 
-static void request_detail(int league_idx) {
+static void request_detail_side(int league_idx, int side) {
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
     dict_write_int32(iter, MESSAGE_KEY_REQUEST_DETAIL, league_idx);
+    dict_write_int32(iter, MESSAGE_KEY_DETAIL_SIDE, side);
     app_message_outbox_send();
-    show_detail_window();
   }
+}
+
+static void request_detail(int league_idx) {
+  s_detail_league = league_idx;
+  s_detail_side = 0;
+  s_detail_other[0] = '\0';
+  request_detail_side(league_idx, 0);
+  show_detail_window();
 }
 
 // window_stack_pop_all takes a bool, not the void* an AppTimerCallback is handed,
@@ -482,8 +553,9 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
 
   Tuple *t_title = dict_find(iter, MESSAGE_KEY_DETAIL_TITLE);
   if (t_title) {
-    strncpy(s_detail_title, t_title->value->cstring, NAME_LEN - 1);
-    s_detail_title[NAME_LEN - 1] = '\0';
+    const char *rest = take_field(t_title->value->cstring, s_detail_title,
+                                  NAME_LEN);
+    take_field(rest, s_detail_other, NAME_LEN);
   }
 
   Tuple *t_dcount = dict_find(iter, MESSAGE_KEY_DETAIL_COUNT);
@@ -500,7 +572,13 @@ static void inbox_received(DictionaryIterator *iter, void *context) {
     parse_player(di, t_ddata->value->cstring);
     if (di + 1 > s_player_count) s_player_count = di + 1;
     if (s_player_count > MAX_PLAYERS) s_player_count = MAX_PLAYERS;
-    if (s_detail_menu) menu_layer_reload_data(s_detail_menu);
+    if (s_detail_menu) {
+      menu_layer_reload_data(s_detail_menu);
+      if (di == 0) {
+        menu_layer_set_selected_index(s_detail_menu, (MenuIndex) { 0, 0 },
+                                      MenuRowAlignTop, false);
+      }
+    }
     return;      // detail traffic never touches the league list
   }
 

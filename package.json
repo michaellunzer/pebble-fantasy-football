@@ -33,7 +33,8 @@
       "DETAIL_IDX",
       "DETAIL_COUNT",
       "DETAIL_DATA",
-      "DETAIL_TITLE"
+      "DETAIL_TITLE",
+      "DETAIL_SIDE"
     ],
     "resources": {
       "media": []
