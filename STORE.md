@@ -51,3 +51,12 @@ daily
 ## Release notes (1.0.0)
 First release. Sleeper support, live scoring, projection-based win odds, and a
 lineup view with your opponent a button press away.
+
+## Icons
+- `icon_80x80.png` (small)
+- `icon_144x144.png` (large)
+
+Regenerate with `python3 tools/make_icons.py`. They are drawn rather than cropped
+from a screenshot: at 80x80 a slice of the UI is an unreadable smudge. The
+football says what the app is for, and the red/green bar is the app's own
+win-probability bar in the same two colours the watch draws it with.
