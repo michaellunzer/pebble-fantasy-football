@@ -60,3 +60,11 @@ Regenerate with `python3 tools/make_icons.py`. They are drawn rather than croppe
 from a screenshot: at 80x80 a slice of the UI is an unreadable smudge. The
 football says what the app is for, and the red/green bar is the app's own
 win-probability bar in the same two colours the watch draws it with.
+
+## Banner
+`banner_720x320.png` — regenerate with `python3 tools/make_banner.py`.
+
+Built from the real screenshots rather than mock-ups, so the banner cannot
+drift from what the app actually looks like: change the screenshots, re-run the
+script. The layout measures the title against the space the devices leave,
+instead of hard-coding coordinates that silently break when a string changes.
