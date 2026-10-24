@@ -295,10 +295,26 @@ static void detail_draw_header(GContext *gctx, const Layer *cell,
   int16_t x = b.origin.x + 4;
   int16_t w = b.size.w - 8;
 
+  // Top line is three fixed columns so nothing can overlap when team names run
+  // long: this lineup on the left, its projected finish centred, and the
+  // lineup Select switches to on the right.
+  const int16_t side_w = 58;
+  const int16_t mid_w  = w - (side_w * 2);
+
   graphics_context_set_text_color(gctx, GColorWhite);
   draw_text(gctx, s_detail_title[0] ? s_detail_title : "Starters",
             fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-            GRect(x, b.origin.y - 2, (w / 2) + 10, 18), GTextAlignmentLeft);
+            GRect(x, b.origin.y - 2, side_w, 18), GTextAlignmentLeft);
+
+  if (s_detail_league >= 0 && s_detail_league < s_count) {
+    const LeagueRow *r = &s_rows[s_detail_league];
+    bool mine = (s_detail_side == 0);
+    char p[PTS_LEN + 6];
+    snprintf(p, sizeof(p), "proj %s", mine ? r->my_proj : r->opp_proj);
+    graphics_context_set_text_color(gctx, GColorLightGray);
+    draw_text(gctx, p, fonts_get_system_font(FONT_KEY_GOTHIC_14),
+              GRect(x + side_w, b.origin.y - 2, mid_w, 18), GTextAlignmentCenter);
+  }
 
   // Name the other lineup on the right, so the toggle advertises itself.
   if (s_detail_other[0]) {
@@ -306,29 +322,18 @@ static void detail_draw_header(GContext *gctx, const Layer *cell,
     snprintf(hint, sizeof(hint), "%s \u203a", s_detail_other);
     graphics_context_set_text_color(gctx, GColorLightGray);
     draw_text(gctx, hint, fonts_get_system_font(FONT_KEY_GOTHIC_14),
-              GRect(x + (w / 2) + 10, b.origin.y - 2, (w / 2) - 10, 18),
+              GRect(x + side_w + mid_w, b.origin.y - 2, side_w, 18),
               GTextAlignmentRight);
   }
 
-  // The side's totals. Both already arrived with the league row, so showing
-  // them here costs no extra traffic: the detail view just reads the card it
-  // was opened from, picking the column that matches the lineup on screen.
+  // Second line is the running total alone, so it can carry weight.
   if (s_detail_league >= 0 && s_detail_league < s_count) {
     const LeagueRow *r = &s_rows[s_detail_league];
     bool mine = (s_detail_side == 0);
-    const char *now  = mine ? r->my_pts  : r->opp_pts;
-    const char *proj = mine ? r->my_proj : r->opp_proj;
-
     graphics_context_set_text_color(gctx, GColorWhite);
-    draw_text(gctx, now, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-              GRect(x, b.origin.y + 14, (w / 2), 22), GTextAlignmentLeft);
-
-    char p[PTS_LEN + 6];
-    snprintf(p, sizeof(p), "proj %s", proj);
-    graphics_context_set_text_color(gctx, GColorLightGray);
-    draw_text(gctx, p, fonts_get_system_font(FONT_KEY_GOTHIC_18),
-              GRect(x + (w / 2), b.origin.y + 14, (w / 2), 22),
-              GTextAlignmentRight);
+    draw_text(gctx, mine ? r->my_pts : r->opp_pts,
+              fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+              GRect(x, b.origin.y + 14, w, 22), GTextAlignmentLeft);
   }
 }
 
