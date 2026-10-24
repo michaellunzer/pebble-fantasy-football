@@ -42,8 +42,10 @@ on the right the points banked so far stacked above what they are projected to
 finish on. A dash means they have not played yet, so the projection underneath
 is all there is to go on.
 
-Select again switches to your opponent's lineup; the header names whichever
-team you would switch to.
+The header carries that side's running total and its projected finish, so the
+lineup below always has a total to read against. Select switches to your
+opponent's lineup and the totals follow; the header names whichever team you
+would switch to.
 
 ![Your lineup](screenshot_detail.png)
 ![Opponent's lineup](screenshot_detail_opponent.png)

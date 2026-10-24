@@ -279,11 +279,11 @@ static uint16_t detail_num_rows(MenuLayer *ml, uint16_t section, void *ctx) {
 }
 
 static int16_t detail_cell_height(MenuLayer *ml, MenuIndex *idx, void *ctx) {
-  return 36;        // two stacked lines, as the Sleeper app lays a starter out
+  return 44;        // two stacked lines, as the Sleeper app lays a starter out
 }
 
 static int16_t detail_header_height(MenuLayer *ml, uint16_t section, void *ctx) {
-  return MENU_CELL_BASIC_HEADER_HEIGHT;
+  return 36;        // team name, then the side's running and projected totals
 }
 
 static void detail_draw_header(GContext *gctx, const Layer *cell,
@@ -291,19 +291,43 @@ static void detail_draw_header(GContext *gctx, const Layer *cell,
   GRect b = layer_get_bounds(cell);
   graphics_context_set_fill_color(gctx, GColorOxfordBlue);
   graphics_fill_rect(gctx, b, 0, GCornerNone);
+
+  int16_t x = b.origin.x + 4;
+  int16_t w = b.size.w - 8;
+
   graphics_context_set_text_color(gctx, GColorWhite);
   draw_text(gctx, s_detail_title[0] ? s_detail_title : "Starters",
             fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-            GRect(b.origin.x + 4, b.origin.y - 2, (b.size.w / 2) - 6, b.size.h + 4),
-            GTextAlignmentLeft);
+            GRect(x, b.origin.y - 2, (w / 2) + 10, 18), GTextAlignmentLeft);
+
   // Name the other lineup on the right, so the toggle advertises itself.
   if (s_detail_other[0]) {
     char hint[NAME_LEN + 4];
     snprintf(hint, sizeof(hint), "%s \u203a", s_detail_other);
     graphics_context_set_text_color(gctx, GColorLightGray);
     draw_text(gctx, hint, fonts_get_system_font(FONT_KEY_GOTHIC_14),
-              GRect(b.origin.x + b.size.w / 2, b.origin.y - 2,
-                    (b.size.w / 2) - 4, b.size.h + 4),
+              GRect(x + (w / 2) + 10, b.origin.y - 2, (w / 2) - 10, 18),
+              GTextAlignmentRight);
+  }
+
+  // The side's totals. Both already arrived with the league row, so showing
+  // them here costs no extra traffic: the detail view just reads the card it
+  // was opened from, picking the column that matches the lineup on screen.
+  if (s_detail_league >= 0 && s_detail_league < s_count) {
+    const LeagueRow *r = &s_rows[s_detail_league];
+    bool mine = (s_detail_side == 0);
+    const char *now  = mine ? r->my_pts  : r->opp_pts;
+    const char *proj = mine ? r->my_proj : r->opp_proj;
+
+    graphics_context_set_text_color(gctx, GColorWhite);
+    draw_text(gctx, now, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+              GRect(x, b.origin.y + 14, (w / 2), 22), GTextAlignmentLeft);
+
+    char p[PTS_LEN + 6];
+    snprintf(p, sizeof(p), "proj %s", proj);
+    graphics_context_set_text_color(gctx, GColorLightGray);
+    draw_text(gctx, p, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+              GRect(x + (w / 2), b.origin.y + 14, (w / 2), 22),
               GTextAlignmentRight);
   }
 }
@@ -337,36 +361,39 @@ static void detail_draw_row(GContext *gctx, const Layer *cell, MenuIndex *idx,
   const PlayerRow *pl = &s_players[idx->row];
   int16_t y = b.origin.y;
 
+  // Two columns: identity on the left, numbers on the right. The matchup is
+  // right-aligned under the name so it meets the numbers instead of leaving a
+  // band of dead space across the middle of every row.
+  const int16_t num_w = 64;
+  int16_t nx = b.origin.x + b.size.w - num_w - 3;
+  int16_t tx = b.origin.x + 42;
+  int16_t tw = nx - tx - 4;
+
   // Position chip
-  GRect chip = GRect(b.origin.x + 4, y + 4, 30, 17);
+  GRect chip = GRect(b.origin.x + 3, y + 6, 35, 23);
   graphics_context_set_fill_color(gctx, position_color(pl->pos));
   graphics_fill_rect(gctx, chip, 4, GCornersAll);
   graphics_context_set_text_color(gctx, GColorBlack);
-  draw_text(gctx, pl->pos, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-            GRect(chip.origin.x, chip.origin.y - 2, chip.size.w, chip.size.h + 4),
+  draw_text(gctx, pl->pos, fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+            GRect(chip.origin.x, chip.origin.y - 3, chip.size.w, chip.size.h + 6),
             GTextAlignmentCenter);
 
-  // Name over matchup on the left
-  int16_t tx = b.origin.x + 38;
-  int16_t tw = b.size.w - 38 - 56;
   graphics_context_set_text_color(gctx, GColorWhite);
-  draw_text(gctx, pl->name, fonts_get_system_font(FONT_KEY_GOTHIC_18),
-            GRect(tx, y + 1, tw, 20), GTextAlignmentLeft);
+  draw_text(gctx, pl->name, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+            GRect(tx, y + 1, tw, 27), GTextAlignmentLeft);
   graphics_context_set_text_color(gctx, GColorLightGray);
-  draw_text(gctx, pl->matchup, fonts_get_system_font(FONT_KEY_GOTHIC_14),
-            GRect(tx, y + 19, tw, 16), GTextAlignmentLeft);
+  draw_text(gctx, pl->matchup, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+            GRect(tx, y + 24, tw, 21), GTextAlignmentRight);
 
-  // Actual over projected on the right, the way the app stacks them: the bold
-  // number is what is banked, the grey one underneath is what is still expected.
-  int16_t rx = b.origin.x + b.size.w - 54;
+  // Points banked above points projected.
   bool played = (pl->state == 0);
   graphics_context_set_text_color(gctx, played ? GColorWhite : GColorLightGray);
   draw_text(gctx, pl->state == 2 ? "\u2013" : pl->actual,
-            fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-            GRect(rx, y + 1, 50, 20), GTextAlignmentRight);
+            fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+            GRect(nx, y + 1, num_w, 27), GTextAlignmentRight);
   graphics_context_set_text_color(gctx, GColorDarkGray);
-  draw_text(gctx, pl->proj, fonts_get_system_font(FONT_KEY_GOTHIC_14),
-            GRect(rx, y + 19, 50, 16), GTextAlignmentRight);
+  draw_text(gctx, pl->proj, fonts_get_system_font(FONT_KEY_GOTHIC_18),
+            GRect(nx, y + 24, num_w, 21), GTextAlignmentRight);
 }
 
 static void request_detail_side(int league_idx, int side);
