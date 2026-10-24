@@ -13,42 +13,30 @@ Every Sleeper league on one screen: live scores, who's left to play, and win odd
 
 ## Description
 
-Follow every fantasy league you're in without reaching for your phone.
+🏈 Follow every fantasy league you're in, without reaching for your phone.
 
-Each league gets a card — both team names, the live score, and a red/green bar
-for win probability. The screen divides by how many leagues you follow, so two
-stay readable instead of being crammed into a list: one fills the screen, two
-take half each, three take a third. Past three it scrolls, by finger or by
-button.
+**What you get**
 
-While games are running, each card shows how many starters each side still has
-to play. Being down thirty points means something very different with seven
-players left than with one.
-
-Press Select on a matchup to open the lineup: a colour-coded position chip, the
-player and their matchup, and the points banked so far stacked above what
-they're projected to finish on. A dash means they haven't kicked off yet, which
-is not the same as scoring nothing. Press again to see your opponent's lineup.
-
-The closest matchup appears on your launcher too, so you can read the score
-without opening the app.
+- 📋 **One card per league** — both team names, the live score, and a red/green win-probability bar
+- 📐 **The screen splits by league count** — one fills it, two take half each, three take a third. Past three it scrolls, by finger or by button
+- ⏳ **Who's left to play** — while games are running, each card shows how many starters each side still has. Down thirty with seven left is nothing like down thirty with one
+- 👤 **Press Select for the lineup** — a colour-coded position chip, the player and their matchup, and the points banked stacked above what they're projected to finish on
+- ➖ **A dash means they haven't kicked off** — which is not the same as scoring nothing
+- 🔄 **Press again for your opponent's lineup** — and the totals follow
+- ⌚ **Your closest matchup on the launcher** — read the score without even opening the app
 
 **Setting it up**
 
-Type your Sleeper username into the app settings and tick the leagues you want.
-No account, no API key, nothing to sign up for.
+- ⚙️ Type your Sleeper username into the app settings and tick the leagues you want
+- ✅ No account, no API key, nothing to sign up for
 
 **Worth knowing**
 
-- Sleeper only for now.
-- Win probability is worked out from the live score plus projections for the
-  starters yet to play. It's this app's model, not Sleeper's own number, so it
-  won't match theirs exactly — though it does track the same direction,
-  including the weeks where the better record is the underdog.
-- Built for Pebble Time 2.
-- Background refresh is off by default, because waking the watch briefly opens
-  the app. Turn it on in settings if you want the launcher score kept fresh.
-- Not affiliated with Sleeper. Sleeper's API is free for non-commercial use.
+- 🟣 **Sleeper only** for now
+- 📊 **The win odds are this app's model**, not Sleeper's own number — live score plus projections for the starters yet to play. It tracks the same direction, including the weeks where the better record is the underdog, but it won't match their figure exactly
+- ⌚ **Built for Pebble Time 2**
+- 🔋 **Background refresh is off by default**, because waking the watch briefly opens the app. Turn it on in settings if you want the launcher score kept fresh
+- ℹ️ Not affiliated with Sleeper. Their API is free for non-commercial use
 
 ## Category
 daily
