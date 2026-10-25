@@ -65,9 +65,18 @@ want. Nothing needs an account or an API key: Sleeper's read API is public.
 Sleeper's API exposes no win-probability field, so this computes one:
 
 1. Take each team's live score.
-2. Add up Sleeper's projections for the starters who have not played yet.
-3. Treat the projected margin as normal with σ = `9.0 × sqrt(players left)`
+2. Add Sleeper's projections for starters whose game has not kicked off.
+3. For starters whose game is **in progress**, add only the share of their
+   projection the rest of the game still covers, by quarter. Without this a
+   player who is mid-game contributes nothing beyond what they have already
+   banked, which understates every team with a game running — on a real
+   matchup it read 85.77 against the Sleeper app's 100.35.
+4. Treat the projected margin as normal with σ = `9.0 × sqrt(players left)`
    and read the win probability off the normal CDF.
+
+Game state comes from `/scores/nfl/regular/<season>/<week>`, joined to players
+by `game_id`. "Players left to play" counts only those yet to kick off, which
+is what the Sleeper app's "yet to play" counts too.
 
 Before kickoff that reproduces the direction and rough magnitude of Sleeper's
 own number — including the common case where the team with the better record

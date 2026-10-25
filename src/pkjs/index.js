@@ -89,21 +89,14 @@ function teamName(user) {
   return asciify(md.team_name || user.display_name || user.username || '?');
 }
 
-function today() {
-  var d = new Date();
-  var m = d.getMonth() + 1;
-  var day = d.getDate();
-  return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' +
-         (day < 10 ? '0' : '') + day;
-}
 
 // ---------------------------------------------------------------- projections
 
-// v2 added player name and position to each entry. The key carries the version
-// so a cache written by an older build is ignored rather than served without
-// the fields the detail view needs.
+// v3 added the game id, which is how a player is matched to whether their
+// game has finished. The key carries the version so a cache written by an
+// older build is ignored rather than served without the fields we now need.
 function projectionKey(season, week) {
-  return 'proj:v2:' + season + ':' + week;
+  return 'proj:v3:' + season + ':' + week;
 }
 
 function loadProjections(season, week, cb) {
@@ -137,7 +130,8 @@ function loadProjections(season, week, cb) {
         nm: asciify(pl.last_name || pl.first_name || e.player_id),
         ps: (pl.fantasy_positions && pl.fantasy_positions[0]) || '',
         tm: e.team || '',
-        op: e.opponent || ''
+        op: e.opponent || '',
+        gid: e.game_id || null
       };
     }
     try {
@@ -146,6 +140,31 @@ function loadProjections(season, week, cb) {
       console.log('projections: cache write failed, continuing');
     }
     cb(null, map);
+  });
+}
+
+// ------------------------------------------------------------------ game state
+
+// How much of a game is still ahead, by quarter. Rough, but the difference
+// between rough and nothing is large: without it a player who is mid-game
+// contributes only what they have already banked, which quietly understates
+// every team with a game in progress.
+var QUARTER_REMAINING = { '1': 0.75, '2': 0.50, '3': 0.25, '4': 0.08 };
+
+// Not cached: it is the one thing that changes minute to minute, and it is
+// small next to the projections payload.
+function loadGames(season, week, cb) {
+  var url = API + '/scores/nfl/regular/' + season + '/' + week;
+  get(url, function (err, list) {
+    if (err) { console.log('game state unavailable: ' + err); return cb({}); }
+    var map = {};
+    (list || []).forEach(function (g) {
+      map[g.game_id] = {
+        status: g.status,
+        q: ((g.metadata || {}).quarter || '')
+      };
+    });
+    cb(map);
   });
 }
 
@@ -158,15 +177,21 @@ function loadProjections(season, week, cb) {
 //   'done'    already scored, or their game has finished
 //   'pending' has a game still to come
 //   'none'    no game: bye, inactive, or unknown
-function playState(pid, pts, proj, now) {
-  if (pts > 0) return 'done';
+function playState(pid, pts, proj, games) {
   var p = proj[pid];
-  if (!p || !p.date) return 'none';
-  if (p.date < now) return 'done';
-  return 'pending';
+  if (!p) return 'none';
+  var g = p.gid ? games[p.gid] : null;
+  if (!g) {
+    // No game found: fall back to the old reading rather than guessing.
+    if (pts > 0) return 'done';
+    return p.date ? 'pending' : 'none';
+  }
+  if (g.status === 'complete') return 'done';
+  if (g.status === 'pre_game') return 'pending';
+  return 'live';                       // in_game: started, not finished
 }
 
-function projectTeam(entry, proj, scoringField, now) {
+function projectTeam(entry, proj, scoringField, games) {
   var current = entry.points || 0;
   var remaining = 0;
   var yetToPlay = 0;
@@ -176,10 +201,21 @@ function projectTeam(entry, proj, scoringField, now) {
     var pid = starters[i];
     if (!pid || pid === '0') continue;          // empty roster slot
     var pts = pointsArr[i] || 0;
-    if (playState(pid, pts, proj, now) !== 'pending') continue;
+    var state = playState(pid, pts, proj, games);
+    if (state === 'done' || state === 'none') continue;
+
     var p = proj[pid];
-    remaining += (p && p[scoringField]) ? p[scoringField] : 0;
-    yetToPlay += 1;
+    var full = (p && p[scoringField]) ? p[scoringField] : 0;
+    if (state === 'pending') {
+      remaining += full;
+      yetToPlay += 1;                 // only players yet to kick off count here
+    } else {
+      // Mid-game: their banked points are already in `current`, so add only
+      // the share of their projection the rest of the game still covers.
+      var g = games[p.gid] || {};
+      var frac = QUARTER_REMAINING[g.q];
+      remaining += full * (frac === undefined ? 0.25 : frac);
+    }
   }
   return { current: current, projected: current + remaining, left: yetToPlay };
 }
@@ -221,7 +257,7 @@ function record(roster) {
 
 // One line per starter for the detail view. Names and positions come from the
 // projections already cached, so opening a league costs no extra request.
-function buildDetail(entry, proj, field, now) {
+function buildDetail(entry, proj, field, games) {
   var out = [];
   var starters = entry.starters || [];
   var pts = entry.starters_points || [];
@@ -229,7 +265,7 @@ function buildDetail(entry, proj, field, now) {
     var pid = starters[i];
     if (!pid || pid === '0') continue;
     var p = proj[pid] || {};
-    var state = playState(pid, pts[i] || 0, proj, now);
+    var state = playState(pid, pts[i] || 0, proj, games);
     var scored = pts[i] || 0;
     // Actual and projected both go over, so the watch can stack them the way
     // the Sleeper app does: what was banked above what is still expected.
@@ -241,13 +277,14 @@ function buildDetail(entry, proj, field, now) {
       actual,
       fmt(p[field] || 0),
       matchup,
-      state === 'done' ? '0' : (state === 'pending' ? '1' : '2')
+      (state === 'done' || state === 'live') ? '0'
+        : (state === 'pending' ? '1' : '2')
     ].join(SEP));
   }
   return out;
 }
 
-function buildRow(cfg, league, data, proj, now) {
+function buildRow(cfg, league, data, proj, games) {
   var rosters = data.rosters, users = data.users, matchups = data.matchups;
 
   var userById = {};
@@ -280,8 +317,8 @@ function buildRow(cfg, league, data, proj, now) {
   if (!opp) return null;
 
   var field = scoringField(league);
-  var mine = projectTeam(me, proj, field, now);
-  var theirs = projectTeam(opp, proj, field, now);
+  var mine = projectTeam(me, proj, field, games);
+  var theirs = projectTeam(opp, proj, field, games);
   var win = winProbability(mine, theirs);
   // mine/theirs also carry projected totals and how many starters are still to
   // play; both go to the watch, since a deficit only means something next to
@@ -293,8 +330,8 @@ function buildRow(cfg, league, data, proj, now) {
   }
 
   return {
-  detail: buildDetail(me, proj, field, now),
-  detailOpp: buildDetail(opp, proj, field, now),
+  detail: buildDetail(me, proj, field, games),
+  detailOpp: buildDetail(opp, proj, field, games),
   title: nameFor(myRosterId),
   titleOpp: nameFor(opp.roster_id),
   row: [
@@ -353,7 +390,11 @@ function refresh() {
         console.log('projections failed: ' + perr + ' (continuing without)');
         proj = {};
       }
-      var now = today();
+      loadGames(season, week, function (games) {
+       var live = 0;
+       for (var k in games) { if (games[k].status === 'in_game') live++; }
+       console.log('game state: ' + Object.keys(games).length + ' games, ' +
+                   live + ' in progress');
       var rows = new Array(cfg.leagues.length);
       var details = new Array(cfg.leagues.length);
       var pending = cfg.leagues.length;
@@ -363,7 +404,7 @@ function refresh() {
           if (!lerr && data.rosters && data.users && data.matchups) {
             var merged = data.league || {};
             merged.roster_id = league.roster_id;
-            var built = buildRow(cfg, merged, data, proj, now);
+            var built = buildRow(cfg, merged, data, proj, games);
             if (built) {
               rows[idx] = built.row;
               details[idx] = {
@@ -393,6 +434,7 @@ function refresh() {
             }
           }
         });
+       });
       });
     });
   });
