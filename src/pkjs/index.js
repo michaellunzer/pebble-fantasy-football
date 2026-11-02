@@ -16,9 +16,14 @@ var SEP = '\x1F';
 // still expect from them. A flat per-player figure cannot work: holding a stud
 // receiver projected 25 under three points is a far likelier upset than holding
 // a kicker projected 8 under three, yet a flat sd calls them equally unlikely.
-// The floor is there because even a low projection can boom.
-var PLAYER_SD_BASE = 4.0;
-var PLAYER_SD_SLOPE = 0.4;
+//
+// Measured, not guessed: tools/calibrate_win_model.js scores every projection
+// and every actual stat line from 2025 w1-18 and 2026 w1-7 under a real league's
+// rules, then regresses the spread of (actual - projected) on the projection.
+// Both of this user's leagues, PPR and a heavily customised half-PPR, land on
+// the same line within a few hundredths.
+var PLAYER_SD_BASE = 2.8;
+var PLAYER_SD_SLOPE = 0.34;
 
 // Set to an array of rows to bypass the network and render fixtures instead.
 // Used only to screenshot the 3-league and scrolling layouts. null = off.
