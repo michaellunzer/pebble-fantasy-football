@@ -34,6 +34,17 @@ var SEP = '\x1F';
 // is thinner than the one a live model has to price. It does not look like the
 // whole seven points, but it is not nothing.
 //
+// The rest looks deliberate on their part. Sleeper rebuilt this calculation in
+// 2022 and said the aim was to avoid large swings and "too-early claims of
+// certain victory or certain loss". Damping confidence is the stated design,
+// which is why matching them means a wider spread than outcomes support.
+//
+// There is no endpoint to copy instead. Win probability appears nowhere in the
+// documented REST API, nor anywhere in the 240 queries of their private
+// GraphQL schema -- the only "win" fields there belong to their betting
+// products. They compute it in the app, so this stays an estimate of an
+// estimate.
+//
 // Fitted to two observations with two free parameters, so it interpolates them
 // exactly and is unproven everywhere else. More screenshots of Sleeper's win
 // percentages would make this an actual fit; tools/fit_to_sleeper.js takes
