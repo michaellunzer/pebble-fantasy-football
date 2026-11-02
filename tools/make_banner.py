@@ -75,15 +75,17 @@ tag = font(21 * s, 420)
 d.text((x, 152 * s), "All your Sleeper leagues,", font=tag, fill=MUTED)
 d.text((x, 180 * s), "on your wrist.", font=tag, fill=MUTED)
 
-# The win bar as a rule under the title, split the way a real matchup splits
+# The win bar as a rule under the title, split the way a real matchup splits:
+# green leads, because in the app the green run is always your own win chance.
 bw = min(230 * s, avail)
 bx0, bx1, by0, by1 = x, x + bw, 228 * s, 238 * s
-split = bx0 + (bx1 - bx0) * 0.38
+split = bx0 + (bx1 - bx0) * 0.62
 r = (by1 - by0) / 2
-d.rounded_rectangle([bx0, by0, bx1, by1], radius=r, fill=GREEN)
-red = Image.new("RGBA", img.size, (0, 0, 0, 0))
-ImageDraw.Draw(red).rounded_rectangle([bx0, by0, bx1, by1], radius=r, fill=RED)
-piece = red.crop((0, 0, int(split), img.height))
+d.rounded_rectangle([bx0, by0, bx1, by1], radius=r, fill=RED)
+green = Image.new("RGBA", img.size, (0, 0, 0, 0))
+ImageDraw.Draw(green).rounded_rectangle([bx0, by0, bx1, by1], radius=r,
+                                        fill=GREEN)
+piece = green.crop((0, 0, int(split), img.height))
 img.paste(piece, (0, 0), piece)
 
 img.paste(back, (back_x, int(H * s / 2 - back.height / 2) - 4 * s), back)

@@ -175,19 +175,19 @@ static void draw_row(GContext *ctx, const LeagueRow *r, GRect row,
                   score_box.size.w, st.score_h),
             GTextAlignmentCenter);
 
-  // Win-probability bar: leader green, trailing side red, split at my_win%
+  // Win-probability bar, read left to right as your own odds: the green run is
+  // your chance of winning, the red remainder your chance of losing. Colouring
+  // by who leads instead would make every bar mostly green, since the favourite
+  // always holds the larger share, and only its side would say who that is.
   int my_w = (inner_w * r->my_win) / 100;
   if (my_w < 0) my_w = 0;
   if (my_w > inner_w) my_w = inner_w;
-  bool i_lead = (r->my_win >= 50);
   GRect bar_l = GRect(inner_x, row.origin.y + st.bar_y, my_w, st.bar_h);
   GRect bar_r = GRect(inner_x + my_w, row.origin.y + st.bar_y, inner_w - my_w,
                       st.bar_h);
-  graphics_context_set_fill_color(ctx, i_lead ? GColorMediumSpringGreen
-                                              : GColorFolly);
+  graphics_context_set_fill_color(ctx, GColorMediumSpringGreen);
   graphics_fill_rect(ctx, bar_l, 2, GCornersLeft);
-  graphics_context_set_fill_color(ctx, i_lead ? GColorFolly
-                                              : GColorMediumSpringGreen);
+  graphics_context_set_fill_color(ctx, GColorFolly);
   graphics_fill_rect(ctx, bar_r, 2, GCornersRight);
 
   // Footer: win% and record on each side
