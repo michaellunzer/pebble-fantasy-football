@@ -17,13 +17,29 @@ var SEP = '\x1F';
 // receiver projected 25 under three points is a far likelier upset than holding
 // a kicker projected 8 under three, yet a flat sd calls them equally unlikely.
 //
-// Measured, not guessed: tools/calibrate_win_model.js scores every projection
-// and every actual stat line from 2025 w1-18 and 2026 w1-7 under a real league's
-// rules, then regresses the spread of (actual - projected) on the projection.
-// Both of this user's leagues, PPR and a heavily customised half-PPR, land on
-// the same line within a few hundredths.
-var PLAYER_SD_BASE = 2.8;
-var PLAYER_SD_SLOPE = 0.34;
+// These are set to agree with the Sleeper app rather than with outcomes, a
+// deliberate choice: two screens disagreeing about the same matchup is worse
+// to live with than either being a little off. They are the pair that
+// reproduces both Sleeper figures we have, 7% and 25%, to the tenth.
+//
+// What the outcomes actually say is 2.8 + 0.34, from 10,198 scored stat lines
+// over 2025 w1-18 and 2026 w1-7 -- run tools/calibrate_win_model.js to see it.
+// Sleeper is about a third more uncertain than history warrants, so this pair
+// pulls every number toward a coin flip: a 24-point deficit with one stud left
+// reads 6% here against a measured 2%.
+//
+// Part of that gap is real, and in Sleeper's favour. Past weeks serve their
+// final projections, so a star ruled out after lineups lock vanishes from the
+// high-projection band instead of landing in it as a bust -- the measured tail
+// is thinner than the one a live model has to price. It does not look like the
+// whole seven points, but it is not nothing.
+//
+// Fitted to two observations with two free parameters, so it interpolates them
+// exactly and is unproven everywhere else. More screenshots of Sleeper's win
+// percentages would make this an actual fit; tools/fit_to_sleeper.js takes
+// them.
+var PLAYER_SD_BASE = 3.49;
+var PLAYER_SD_SLOPE = 0.47;
 
 // Set to an array of rows to bypass the network and render fixtures instead.
 // Used only to screenshot the 3-league and scrolling layouts. null = off.
