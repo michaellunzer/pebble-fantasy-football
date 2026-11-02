@@ -48,6 +48,13 @@ glance to your wrist.
 ## Category
 daily
 
+## Release notes (1.0.1)
+Projections now follow your league's own scoring rules, so totals match the
+Sleeper app instead of a generic PPR estimate. Defenses change the most. Win
+odds were retuned to agree with Sleeper, the win bar now reads left to right
+as your own chances, and a matchup no longer calls itself final while games
+are still being played.
+
 ## Release notes (1.0.0)
 First release. Sleeper support, live scoring, projection-based win odds, and a
 lineup view with your opponent a button press away.
