@@ -98,8 +98,15 @@ function teamName(user) {
 // v3 added the game id, which is how a player is matched to whether their
 // game has finished. The key carries the version so a cache written by an
 // older build is ignored rather than served without the fields we now need.
+// Draft and bookkeeping fields that are never worth points, plus the canned
+// totals, which are stored separately.
+var NOT_SCORED = {
+  adp_dd_ppr: 1, pos_adp_dd_ppr: 1, gp: 1,
+  pts_ppr: 1, pts_half_ppr: 1, pts_std: 1
+};
+
 function projectionKey(season, week) {
-  return 'proj:v3:' + season + ':' + week;
+  return 'proj:v4:' + season + ':' + week;
 }
 
 function loadProjections(season, week, cb) {
@@ -125,7 +132,17 @@ function loadProjections(season, week, cb) {
       var e = list[i];
       var st = e.stats || {};
       var pl = e.player || {};
+      // Keep the projected stat line itself. Sleeper's canned pts_ppr /
+      // pts_half_ppr / pts_std are its default rulebooks, and almost no real
+      // league uses one unaltered -- so the totals are scored per league from
+      // these stats, and the canned figures are only a fallback.
+      var line = {};
+      for (var k in st) {
+        if (!st[k] || NOT_SCORED[k]) continue;
+        line[k] = Math.round(st[k] * 100) / 100;
+      }
       map[e.player_id] = {
+        st: line,
         ppr: st.pts_ppr || 0,
         half: st.pts_half_ppr || 0,
         std: st.pts_std || 0,
@@ -194,7 +211,7 @@ function playState(pid, pts, proj, games) {
   return 'live';                       // in_game: started, not finished
 }
 
-function projectTeam(entry, proj, scoringField, games) {
+function projectTeam(entry, proj, scoring, field, games) {
   var current = entry.points || 0;
   var remaining = 0;
   var yetToPlay = 0;
@@ -210,7 +227,7 @@ function projectTeam(entry, proj, scoringField, games) {
     if (state === 'done' || state === 'none') continue;
 
     var p = proj[pid];
-    var full = (p && p[scoringField]) ? p[scoringField] : 0;
+    var full = scorePlayer(p, scoring, field);
     var expected;
     if (state === 'pending') {
       expected = full;
@@ -255,6 +272,22 @@ function scoringField(league) {
   return 'std';
 }
 
+// A player's projected points under one league's rules. This is what makes the
+// watch agree with the Sleeper app: scoring the stat line catches the 40-yard
+// reception bonuses, tackles for loss and points-allowed penalties that a
+// canned PPR total knows nothing about. Defenses diverge the most, since
+// almost every league rewrites their scoring.
+function scorePlayer(p, scoring, field) {
+  if (!p) return 0;
+  if (!scoring || !p.st) return p[field] || 0;
+  var total = 0;
+  for (var k in p.st) {
+    var w = scoring[k];
+    if (w) total += p.st[k] * w;
+  }
+  return total;
+}
+
 function fmt(points) {
   return (Math.round((points || 0) * 100) / 100).toFixed(2);
 }
@@ -270,7 +303,7 @@ function record(roster) {
 
 // One line per starter for the detail view. Names and positions come from the
 // projections already cached, so opening a league costs no extra request.
-function buildDetail(entry, proj, field, games) {
+function buildDetail(entry, proj, scoring, field, games) {
   var out = [];
   var starters = entry.starters || [];
   var pts = entry.starters_points || [];
@@ -288,7 +321,7 @@ function buildDetail(entry, proj, field, games) {
       p.ps || '--',
       p.nm || String(pid),
       actual,
-      fmt(p[field] || 0),
+      fmt(scorePlayer(p, scoring, field)),
       matchup,
       (state === 'done' || state === 'live') ? '0'
         : (state === 'pending' ? '1' : '2')
@@ -330,8 +363,9 @@ function buildRow(cfg, league, data, proj, games) {
   if (!opp) return null;
 
   var field = scoringField(league);
-  var mine = projectTeam(me, proj, field, games);
-  var theirs = projectTeam(opp, proj, field, games);
+  var scoring = league.scoring_settings || null;
+  var mine = projectTeam(me, proj, scoring, field, games);
+  var theirs = projectTeam(opp, proj, scoring, field, games);
   var win = winProbability(mine, theirs);
   // mine/theirs also carry projected totals and how many starters are still to
   // play; both go to the watch, since a deficit only means something next to
@@ -343,8 +377,8 @@ function buildRow(cfg, league, data, proj, games) {
   }
 
   return {
-  detail: buildDetail(me, proj, field, games),
-  detailOpp: buildDetail(opp, proj, field, games),
+  detail: buildDetail(me, proj, scoring, field, games),
+  detailOpp: buildDetail(opp, proj, scoring, field, games),
   title: nameFor(myRosterId),
   titleOpp: nameFor(opp.roster_id),
   row: [
