@@ -49,11 +49,20 @@ glance to your wrist.
 daily
 
 ## Release notes (1.0.1)
-Projections now follow your league's own scoring rules, so totals match the
-Sleeper app instead of a generic PPR estimate. Defenses change the most. Win
-odds were retuned to agree with Sleeper, the win bar now reads left to right
-as your own chances, and a matchup no longer calls itself final while games
-are still being played.
+This one is about agreeing with the Sleeper app. Open both and the numbers
+should now be the same ones.
+
+- 🎯 **Projections follow your league's own scoring rules.** The watch had
+  been using a generic PPR estimate, which quietly disagreed with Sleeper --
+  worst of all for defenses, where nearly every league rewrites the scoring.
+  Totals now match to the cent, player by player
+- 📊 **The win bar reads left to right as your own chances.** Green is how
+  likely you are to win and red is the rest. It used to paint the larger share
+  green whoever was ahead, so even a 1% matchup looked mostly green
+- 🤝 **Win percentages line up with Sleeper's**, including the way they hold
+  back from calling a blowout early
+- ⏱️ **No more premature 100% or 0%** while every remaining game is still
+  being played
 
 ## Release notes (1.0.0)
 First release. Sleeper support, live scoring, projection-based win odds, and a
