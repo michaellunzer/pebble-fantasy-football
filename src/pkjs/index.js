@@ -12,10 +12,13 @@ var API = 'https://api.sleeper.app';
 var CONFIG_URL = 'https://pebble-fantasy-football.michaellunzer.com/config.html';
 var SEP = '\x1F';
 
-// Per-player standard deviation used to spread the projected margin. Tuned so
-// the model reproduces the direction and rough magnitude of Sleeper's own
-// number on real matchups.
-var PLAYER_SD = 9.0;
+// Spread of a single player's remaining points, as sd = BASE + SLOPE * what we
+// still expect from them. A flat per-player figure cannot work: holding a stud
+// receiver projected 25 under three points is a far likelier upset than holding
+// a kicker projected 8 under three, yet a flat sd calls them equally unlikely.
+// The floor is there because even a low projection can boom.
+var PLAYER_SD_BASE = 4.0;
+var PLAYER_SD_SLOPE = 0.4;
 
 // Set to an array of rows to bypass the network and render fixtures instead.
 // Used only to screenshot the 3-league and scrolling layouts. null = off.
@@ -195,6 +198,8 @@ function projectTeam(entry, proj, scoringField, games) {
   var current = entry.points || 0;
   var remaining = 0;
   var yetToPlay = 0;
+  var variance = 0;                   // of the points still to come
+  var unsettled = 0;                  // players who can still move the score
   var starters = entry.starters || [];
   var pointsArr = entry.starters_points || [];
   for (var i = 0; i < starters.length; i++) {
@@ -206,28 +211,36 @@ function projectTeam(entry, proj, scoringField, games) {
 
     var p = proj[pid];
     var full = (p && p[scoringField]) ? p[scoringField] : 0;
+    var expected;
     if (state === 'pending') {
-      remaining += full;
+      expected = full;
       yetToPlay += 1;                 // only players yet to kick off count here
     } else {
       // Mid-game: their banked points are already in `current`, so add only
       // the share of their projection the rest of the game still covers.
       var g = games[p.gid] || {};
       var frac = QUARTER_REMAINING[g.q];
-      remaining += full * (frac === undefined ? 0.25 : frac);
+      expected = full * (frac === undefined ? 0.25 : frac);
     }
+    remaining += expected;
+    unsettled += 1;
+    var sd = PLAYER_SD_BASE + PLAYER_SD_SLOPE * expected;
+    variance += sd * sd;
   }
-  return { current: current, projected: current + remaining, left: yetToPlay };
+  return { current: current, projected: current + remaining, left: yetToPlay,
+           variance: variance, unsettled: unsettled };
 }
 
 function winProbability(mine, theirs) {
-  var left = mine.left + theirs.left;
-  if (left === 0) {
+  // Settle on `unsettled`, not on `left`: `left` counts only players yet to
+  // kick off, so a matchup with everyone mid-game would otherwise be called
+  // final while the games were still being played.
+  if (mine.unsettled + theirs.unsettled === 0) {
     if (mine.current > theirs.current) return 100;
     if (mine.current < theirs.current) return 0;
     return 50;
   }
-  var sigma = Math.max(3, PLAYER_SD * Math.sqrt(left));
+  var sigma = Math.max(3, Math.sqrt(mine.variance + theirs.variance));
   var p = normalCdf((mine.projected - theirs.projected) / sigma);
   var pct = Math.round(p * 100);
   if (pct < 1) pct = 1;
